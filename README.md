@@ -12,7 +12,7 @@
 - 历史记录：已完成 / 未完成分离，可续传与删除
 - 隐私安全：打包不包含本机 Token / 历史记录
 
-## 使用截图
+## 使用流程
 ![开始界面](assets/screenshots/step-1-start.png)
 ![选择下载路径与线程](assets/screenshots/step-2-settings.png)
 ![选择要下载的文件](assets/screenshots/step-3-files.png)
