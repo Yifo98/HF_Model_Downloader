@@ -201,6 +201,9 @@ class WizardApp(tk.Tk):
             "last_tree_refresh": None,
             "last_progress_time": None,
             "last_stall_warn": None,
+            "last_speed_bps": 0.0,
+            "last_speed_nonzero": 0.0,
+            "last_speed_update": None,
             "targets": [],
             "local_dir": None,
             "size_map": {},
@@ -1441,6 +1444,9 @@ class WizardApp(tk.Tk):
                 "last_tree_refresh": None,
                 "last_progress_time": time.monotonic(),
                 "last_stall_warn": None,
+                "last_speed_bps": 0.0,
+                "last_speed_nonzero": 0.0,
+                "last_speed_update": None,
                 "targets": targets,
                 "local_dir": local_dir,
                 "size_map": size_map,
@@ -1602,6 +1608,9 @@ class WizardApp(tk.Tk):
         self.download_state["last_poll_time"] = now
         self.download_state["last_overall_value"] = overall_value
         self.download_state["last_speed_bps"] = speed
+        if speed > 0:
+            self.download_state["last_speed_nonzero"] = speed
+            self.download_state["last_speed_update"] = now
         new_chunk = recommended_chunk_size(speed)
         if new_chunk != self.download_state.get("chunk_size"):
             self.download_state["chunk_size"] = new_chunk
@@ -1614,7 +1623,13 @@ class WizardApp(tk.Tk):
             self.remaining_label.configure(text=f"剩余: {format_size(remaining)}")
         else:
             self.overall_label.configure(text=f"总进度: {format_size(overall_value)} / 未知")
-        self.speed_label.configure(text=f"速度: {format_size(speed)}/s")
+        display_speed = speed
+        last_nonzero = self.download_state.get("last_speed_nonzero", 0.0)
+        last_update = self.download_state.get("last_speed_update")
+        if speed <= 0 and last_nonzero and last_update:
+            if now - last_update < 3.0:
+                display_speed = last_nonzero
+        self.speed_label.configure(text=f"速度: {format_size(display_speed)}/s")
 
         if current_path and not self.download_state.get("parallel"):
             if current_size:
