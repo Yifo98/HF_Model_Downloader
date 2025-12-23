@@ -11,12 +11,21 @@ from tkinter import font
 from tkinter import ttk, filedialog, messagebox
 
 import requests
+import subprocess
+from send2trash import send2trash
 from huggingface_hub import HfApi, hf_hub_url
 
 
 APP_NAME = "HF Downloader GUI"
 CONFIG_DIR = os.path.join(os.getenv("APPDATA") or os.path.expanduser("~"), "hf_downloader_gui")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+OFFICIAL_ENDPOINT = "https://huggingface.co"
+MIRROR_PRESETS = {
+    "HF Mirror（hf-mirror.com）": "https://hf-mirror.com",
+}
+REQUEST_TIMEOUT = (10, 30)
+REQUEST_RETRIES = 3
+STALL_TIMEOUT = 30
 
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w", encoding="utf-8")
@@ -143,6 +152,7 @@ class WizardApp(tk.Tk):
         self.title(APP_NAME)
         self.geometry("1020x760")
         self.minsize(920, 680)
+        self.protocol("WM_DELETE_WINDOW", self._request_exit)
 
         self.config_data = load_config()
 
@@ -150,6 +160,9 @@ class WizardApp(tk.Tk):
         self.token_var = tk.StringVar()
         self.save_token_var = tk.BooleanVar()
         self.show_token_var = tk.BooleanVar(value=False)
+        self.mirror_choice_var = tk.StringVar(value="官方（huggingface.co）")
+        self.mirror_custom_var = tk.StringVar()
+        self.mirror_status_var = tk.StringVar(value="未测试")
 
         self.dest_path_var = tk.StringVar()
         self.folder_name_var = tk.StringVar()
@@ -164,6 +177,8 @@ class WizardApp(tk.Tk):
 
         self.file_list = []
         self.file_meta = []
+        self.file_meta_map = {}
+        self.file_size_map = {}
         self.selection_map = {}
         self.item_to_path = {}
         self.group_to_children = {}
@@ -183,9 +198,13 @@ class WizardApp(tk.Tk):
             "last_poll_time": None,
             "last_overall_value": 0,
             "last_history_time": None,
+            "last_tree_refresh": None,
+            "last_progress_time": None,
+            "last_stall_warn": None,
             "targets": [],
             "local_dir": None,
             "size_map": {},
+            "parallel": False,
             "chunk_size": self.chunk_size_var.get(),
         }
         self.stop_requested = False
@@ -200,6 +219,8 @@ class WizardApp(tk.Tk):
         self._configure_styles()
         self._build_ui()
         self._load_defaults()
+        self._normalize_config_paths()
+        self._process_pending_deletes()
         self.repo_id_var.trace_add("write", self._on_repo_change)
 
     def _configure_styles(self):
@@ -223,7 +244,7 @@ class WizardApp(tk.Tk):
 
         self.back_btn = ttk.Button(self.nav_frame, text="上一步", command=self._prev_step)
         self.next_btn = ttk.Button(self.nav_frame, text="下一步", command=self._next_step)
-        self.cancel_btn = ttk.Button(self.nav_frame, text="退出", command=self.destroy)
+        self.cancel_btn = ttk.Button(self.nav_frame, text="退出", command=self._request_exit)
 
         self.back_btn.pack(side=tk.LEFT)
         self.cancel_btn.pack(side=tk.RIGHT)
@@ -246,8 +267,8 @@ class WizardApp(tk.Tk):
         repo_row = ttk.Frame(frame)
         repo_row.pack(fill=tk.X, pady=(0, 8))
         ttk.Label(repo_row, text="仓库名 (repo_id)").pack(side=tk.LEFT)
-        repo_entry = ttk.Entry(repo_row, textvariable=self.repo_id_var, width=50)
-        repo_entry.pack(side=tk.LEFT, padx=(12, 0), fill=tk.X, expand=True)
+        self.repo_entry = ttk.Entry(repo_row, textvariable=self.repo_id_var, width=50)
+        self.repo_entry.pack(side=tk.LEFT, padx=(12, 0), fill=tk.X, expand=True)
 
         token_row = ttk.Frame(frame)
         token_row.pack(fill=tk.X, pady=(0, 8))
@@ -266,8 +287,32 @@ class WizardApp(tk.Tk):
         ttk.Button(token_opts, text="清除已保存Token", command=self._clear_saved_token).pack(side=tk.LEFT, padx=(16, 0))
         ttk.Button(token_opts, text="历史记录", command=self._open_history_window).pack(side=tk.LEFT, padx=(16, 0))
 
+        mirror_row = ttk.Frame(frame)
+        mirror_row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(mirror_row, text="下载来源").pack(side=tk.LEFT)
+        self.mirror_choice = ttk.Combobox(
+            mirror_row, textvariable=self.mirror_choice_var, state="readonly", width=22
+        )
+        self.mirror_choice["values"] = ["官方（huggingface.co）"] + list(MIRROR_PRESETS.keys()) + ["自定义镜像"]
+        self.mirror_choice.pack(side=tk.LEFT, padx=(12, 0))
+        self.mirror_choice.bind("<<ComboboxSelected>>", lambda _e: self._on_mirror_choice())
+        self.mirror_entry = ttk.Entry(mirror_row, textvariable=self.mirror_custom_var, width=32, state="disabled")
+        self.mirror_entry.pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
+
+        mirror_action = ttk.Frame(frame)
+        mirror_action.pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(mirror_action, text="测试连接", command=self._test_mirror_connection).pack(side=tk.LEFT)
+        self.mirror_status = ttk.Label(mirror_action, textvariable=self.mirror_status_var, foreground="#555")
+        self.mirror_status.pack(side=tk.LEFT, padx=(12, 0))
+
         note = ttk.Label(frame, text="Token 仅用于访问 Hugging Face，保存时会写入本机配置文件。", foreground="#555")
         note.pack(anchor="w", pady=(6, 0))
+        mirror_note = ttk.Label(
+            frame,
+            text="选择自定义时需以 https:// 开头；官方为直连，镜像为替代线路。",
+            foreground="#555",
+        )
+        mirror_note.pack(anchor="w")
 
         return frame
 
@@ -369,18 +414,20 @@ class WizardApp(tk.Tk):
 
         self.tree = ttk.Treeview(
             list_frame,
-            columns=("model", "size", "remaining", "type"),
+            columns=("model", "size", "progress", "remaining", "type"),
             show="tree headings",
             selectmode="none",
         )
         self.tree.heading("#0", text="选择")
         self.tree.heading("model", text="模型类型")
         self.tree.heading("size", text="大小")
+        self.tree.heading("progress", text="进度")
         self.tree.heading("remaining", text="剩余")
         self.tree.heading("type", text="文件类型")
         self.tree.column("#0", width=300, anchor="w")
         self.tree.column("model", width=140, anchor="w")
         self.tree.column("size", width=110, anchor="e")
+        self.tree.column("progress", width=90, anchor="e")
         self.tree.column("remaining", width=110, anchor="e")
         self.tree.column("type", width=140, anchor="w")
         self.tree.bind("<Button-1>", self._on_tree_click)
@@ -429,7 +476,7 @@ class WizardApp(tk.Tk):
         nav_panel.pack(fill=tk.X, pady=(0, 8))
         ttk.Button(nav_panel, text="上一步", command=self._prev_step).pack(side=tk.LEFT)
         ttk.Button(nav_panel, text="返回首页", command=lambda: self._show_step(0)).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(nav_panel, text="退出", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(nav_panel, text="退出", command=self._request_exit).pack(side=tk.RIGHT)
 
         self.summary_text = tk.Text(frame, height=8, wrap="word")
         self.summary_text.pack(fill=tk.X, padx=(0, 0), pady=(0, 8))
@@ -445,9 +492,6 @@ class WizardApp(tk.Tk):
 
         self.file_label = ttk.Label(progress_frame, text="当前文件: -")
         self.file_label.pack(anchor="w", padx=8, pady=(0, 2))
-        self.file_progress = ttk.Progressbar(progress_frame, mode="determinate")
-        self.file_progress.pack(fill=tk.X, padx=8, pady=(0, 6))
-
         self.remaining_label = ttk.Label(progress_frame, text="剩余: 0 B")
         self.remaining_label.pack(anchor="w", padx=8, pady=(0, 6))
         self.speed_label = ttk.Label(progress_frame, text="速度: 0 B/s")
@@ -458,13 +502,15 @@ class WizardApp(tk.Tk):
 
         self.incomplete_tree = ttk.Treeview(
             incomplete_frame,
-            columns=("remaining",),
+            columns=("progress", "remaining"),
             show="tree headings",
             height=6,
         )
         self.incomplete_tree.heading("#0", text="文件")
+        self.incomplete_tree.heading("progress", text="进度")
         self.incomplete_tree.heading("remaining", text="剩余")
         self.incomplete_tree.column("#0", width=520, anchor="w")
+        self.incomplete_tree.column("progress", width=90, anchor="e")
         self.incomplete_tree.column("remaining", width=140, anchor="e")
         self.incomplete_tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
@@ -537,15 +583,98 @@ class WizardApp(tk.Tk):
         if token:
             self.token_var.set(token)
             self.save_token_var.set(True)
+        mirror_choice = self.config_data.get("mirror_choice") or "官方（huggingface.co）"
+        mirror_custom = self.config_data.get("mirror_custom") or ""
+        self.mirror_choice_var.set(mirror_choice)
+        self.mirror_custom_var.set(mirror_custom)
+        self._on_mirror_choice()
+        last_test = self.config_data.get("mirror_last_test")
+        if isinstance(last_test, dict):
+            status = last_test.get("status") or "未测试"
+            self.mirror_status_var.set(f"上次测试: {status}")
         default_path = self.config_data.get("default_path")
         if default_path:
-            self.dest_path_var.set(default_path)
+            fixed = self._fix_path_encoding(default_path)
+            if fixed and os.path.exists(fixed):
+                if fixed != default_path:
+                    self.config_data["default_path"] = fixed
+                    self._save_history()
+                self.dest_path_var.set(fixed)
+            else:
+                self.dest_path_var.set(default_path)
         if "delete_files_default" not in self.config_data:
             self.config_data["delete_files_default"] = False
             self._save_history()
         if "delete_files_default_set" not in self.config_data:
             self.config_data["delete_files_default_set"] = False
             self._save_history()
+
+    def _on_mirror_choice(self):
+        is_custom = self.mirror_choice_var.get() == "自定义镜像"
+        self.mirror_entry.configure(state="normal" if is_custom else "disabled")
+
+    def _get_mirror_endpoint(self, show_warning=True):
+        choice = self.mirror_choice_var.get()
+        if choice == "官方（huggingface.co）":
+            return None
+        if choice != "自定义镜像":
+            return MIRROR_PRESETS.get(choice)
+        endpoint = self.mirror_custom_var.get().strip()
+        if not endpoint:
+            return None
+        if not endpoint.startswith("https://"):
+            if show_warning:
+                messagebox.showwarning("提示", "镜像端点必须以 https:// 开头，将使用官方地址。")
+            return None
+        return endpoint.rstrip("/")
+
+    def _persist_mirror_selection(self, endpoint):
+        self.config_data["mirror_choice"] = self.mirror_choice_var.get()
+        if endpoint:
+            self.config_data["mirror_custom"] = endpoint
+        else:
+            self.config_data.pop("mirror_custom", None)
+        save_config(self.config_data)
+
+    def _format_mirror_label(self):
+        choice = self.mirror_choice_var.get()
+        if choice == "官方（huggingface.co）":
+            return choice
+        if choice == "自定义镜像":
+            endpoint = self._get_mirror_endpoint(show_warning=False)
+            return f"自定义: {endpoint}" if endpoint else "自定义: 未设置"
+        return choice
+
+    def _test_mirror_connection(self):
+        endpoint = self._get_mirror_endpoint(show_warning=False) or OFFICIAL_ENDPOINT
+        self.mirror_status_var.set("测试中...")
+
+        def worker():
+            token = self.token_var.get().strip()
+            headers = {}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            url = f"{endpoint}/api/whoami-v2"
+            status = "连接失败"
+            try:
+                response = requests.get(url, headers=headers, timeout=6)
+                if response.status_code == 200:
+                    status = "连接成功"
+                elif response.status_code in {401, 403}:
+                    status = "可连接（需要Token）"
+                else:
+                    status = f"连接异常: HTTP {response.status_code}"
+            except requests.RequestException as exc:
+                status = f"连接失败: {exc}"
+            self.config_data["mirror_last_test"] = {
+                "endpoint": endpoint,
+                "status": status,
+                "time": time.time(),
+            }
+            save_config(self.config_data)
+            self.after(0, lambda: self.mirror_status_var.set(status))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _get_history(self):
         history = self.config_data.get("history")
@@ -613,6 +742,15 @@ class WizardApp(tk.Tk):
             return
         for entry in self._get_history():
             if entry.get("id") == self.current_session_id:
+                local_dir = None
+                dest = entry.get("dest") or ""
+                folder = entry.get("folder") or ""
+                if dest and folder:
+                    local_dir = os.path.join(dest, folder)
+                if local_dir and os.path.isdir(local_dir):
+                    expected = entry.get("total_bytes") or 0
+                    if expected > 0:
+                        completed = self._compute_completed_bytes(entry) >= expected
                 entry["status"] = "completed" if completed else "unfinished"
                 if completed:
                     entry["completed_bytes"] = entry.get("total_bytes") or entry.get("completed_bytes", 0)
@@ -682,7 +820,12 @@ class WizardApp(tk.Tk):
         action_row = ttk.Frame(unfinished_frame)
         action_row.pack(fill=tk.X, padx=6, pady=(0, 6))
         ttk.Button(action_row, text="继续下载", command=self._resume_selected_history).pack(side=tk.LEFT)
-        ttk.Button(action_row, text="删除记录", command=self._delete_selected_history).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(action_row, text="删除记录", command=lambda: self._delete_selected_history(False)).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+        ttk.Button(action_row, text="删除记录并删除文件", command=lambda: self._delete_selected_history(True)).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
 
         self.completed_tree = ttk.Treeview(completed_frame, columns=columns, show="headings", selectmode="browse")
         for col, text, width in (
@@ -696,7 +839,14 @@ class WizardApp(tk.Tk):
 
         completed_action = ttk.Frame(completed_frame)
         completed_action.pack(fill=tk.X, padx=6, pady=(0, 6))
-        ttk.Button(completed_action, text="删除记录", command=self._delete_selected_history).pack(side=tk.LEFT)
+        ttk.Button(completed_action, text="删除记录", command=lambda: self._delete_selected_history(False)).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(
+            completed_action,
+            text="删除记录并删除文件",
+            command=lambda: self._delete_selected_history(True),
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self._populate_history_tables()
 
@@ -708,8 +858,12 @@ class WizardApp(tk.Tk):
         for entry in history:
             progress_text, _remaining = self._calculate_entry_progress(entry)
             updated = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(entry.get("updated_at", time.time())))
+            repo_id = entry.get("repo_id") or ""
+            folder = entry.get("folder") or ""
+            files = entry.get("files") or []
+            label = f"{repo_id} [{folder}] ({len(files)}个文件)".strip()
             target_tree = self.completed_tree if entry.get("status") == "completed" else self.unfinished_tree
-            target_tree.insert("", tk.END, iid=entry.get("id"), values=(entry.get("repo_id"), progress_text, updated))
+            target_tree.insert("", tk.END, iid=entry.get("id"), values=(label, progress_text, updated))
 
     def _calculate_entry_progress(self, entry):
         total_bytes = entry.get("total_bytes") or 0
@@ -731,7 +885,11 @@ class WizardApp(tk.Tk):
         if total_bytes > 0:
             percent = min(completed_bytes / total_bytes * 100, 100.0)
             remaining = max(total_bytes - completed_bytes, 0)
+            if entry.get("status") == "completed":
+                return f"100% / {format_size(total_bytes)}", 0
             return f"{percent:.1f}% / {format_size(remaining)}", remaining
+        if entry.get("status") == "completed":
+            return "已完成", None
         return "未知", None
 
     def _resume_selected_history(self):
@@ -743,6 +901,16 @@ class WizardApp(tk.Tk):
         entry = next((item for item in self._get_history() if item.get("id") == entry_id), None)
         if not entry:
             return
+        if self.download_state.get("running"):
+            if not messagebox.askyesno("提示", "当前仍在下载，是否停止并切换？"):
+                return
+            self.stop_requested = True
+            for _ in range(25):
+                if not self.download_state.get("running"):
+                    break
+                self.update()
+                time.sleep(0.1)
+            self.download_state["running"] = False
         self.pending_resume = entry
         self.auto_start_resume = True
         self.repo_id_var.set(entry.get("repo_id", ""))
@@ -754,7 +922,7 @@ class WizardApp(tk.Tk):
             self.history_window.destroy()
             self.history_window = None
 
-    def _delete_selected_history(self):
+    def _delete_selected_history(self, delete_files):
         for tree in (self.unfinished_tree, self.completed_tree):
             selection = tree.selection()
             if selection:
@@ -762,70 +930,59 @@ class WizardApp(tk.Tk):
                 entry = next((item for item in self._get_history() if item.get("id") == entry_id), None)
                 if not entry:
                     return
-                if self.config_data.get("delete_files_default_set"):
-                    delete_files = bool(self.config_data.get("delete_files_default"))
-                    remember = False
-                else:
-                    result = self._confirm_delete_history()
-                    if result is None:
-                        return
-                    delete_files, remember = result
-                if delete_files is None:
-                    return
-                if remember:
-                    self.config_data["delete_files_default"] = delete_files
-                    self.config_data["delete_files_default_set"] = True
-                    self._save_history()
                 if delete_files:
-                    self._delete_entry_files(entry)
+                    if not messagebox.askyesno("确认删除", "确定删除记录并移除本地文件夹吗？"):
+                        return
+                    if self.download_state.get("running"):
+                        if not messagebox.askyesno("下载中", "当前仍在下载，是否先停止再删除？"):
+                            return
+                        self.stop_requested = True
+                        for _ in range(25):
+                            if not self.download_state.get("running"):
+                                break
+                            self.update()
+                            time.sleep(0.1)
+                    ok, reason = self._delete_entry_files(entry)
+                    if not ok:
+                        if reason == "本地路径不存在":
+                            messagebox.showwarning("提示", "本地路径不存在，将仅删除记录。")
+                        else:
+                            target = entry.get("resolved_path")
+                            if target:
+                                self._queue_pending_delete(target)
+                            messagebox.showwarning("提示", f"本地删除失败：{reason}，已加入退出后删除。")
+                            return
                 history = [item for item in self._get_history() if item.get("id") != entry_id]
                 self.config_data["history"] = history
                 self._save_history()
                 self._populate_history_tables()
                 return
 
-    def _confirm_delete_history(self):
-        dialog = tk.Toplevel(self)
-        dialog.title("确认删除")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-
-        ttk.Label(dialog, text="是否删除本地文件夹及全部内容？").pack(padx=16, pady=(12, 8), anchor="w")
-
-        delete_var = tk.BooleanVar(value=bool(self.config_data.get("delete_files_default", False)))
-        remember_var = tk.BooleanVar(value=False)
-
-        ttk.Checkbutton(dialog, text="同时删除本地文件", variable=delete_var).pack(padx=16, anchor="w")
-        ttk.Checkbutton(dialog, text="记住此选择为默认(以后不再提示)", variable=remember_var).pack(
-            padx=16, pady=(4, 8), anchor="w"
-        )
-
-        result = {"value": None}
-
-        def on_ok():
-            result["value"] = (delete_var.get(), remember_var.get())
-            dialog.destroy()
-
-        def on_cancel():
-            result["value"] = None
-            dialog.destroy()
-
-        button_row = ttk.Frame(dialog)
-        button_row.pack(fill=tk.X, padx=16, pady=(0, 12))
-        ttk.Button(button_row, text="取消", command=on_cancel).pack(side=tk.RIGHT)
-        ttk.Button(button_row, text="确认", command=on_ok).pack(side=tk.RIGHT, padx=(0, 8))
-
-        dialog.wait_window()
-        return result["value"]
-
     def _delete_entry_files(self, entry):
         dest = entry.get("dest") or ""
         folder = entry.get("folder") or ""
-        if not dest or not folder:
-            return
-        target = os.path.join(dest, folder)
-        if os.path.exists(target):
-            shutil.rmtree(target, ignore_errors=True)
+        candidates = []
+        if folder and os.path.isabs(folder):
+            candidates.append(folder)
+        if dest and folder and not os.path.isabs(folder):
+            candidates.append(os.path.join(dest, folder))
+        default_path = self.config_data.get("default_path") or ""
+        if default_path and folder and not os.path.isabs(folder):
+            candidates.append(os.path.join(default_path, folder))
+
+        target = None
+        for candidate in candidates:
+            resolved = self._resolve_existing_path(candidate)
+            if resolved:
+                drive, _ = os.path.splitdrive(resolved)
+                if drive:
+                    target = resolved
+                    break
+
+        if not target:
+            return False, "本地路径不存在"
+        entry["resolved_path"] = target
+        return self._delete_path(target)
 
     def _resume_after_load(self):
         self.auto_start_resume = False
@@ -836,6 +993,8 @@ class WizardApp(tk.Tk):
         if not self.token_var.get().strip():
             messagebox.showwarning("提示", "请先填写Token再继续下载")
             return
+        self.stop_requested = False
+        self.download_state["running"] = False
         self._show_step(3)
         self._start_download()
 
@@ -865,13 +1024,15 @@ class WizardApp(tk.Tk):
         if not repo_id or not token:
             messagebox.showwarning("提示", "请先填写仓库名和Token")
             return
+        mirror_endpoint = self._get_mirror_endpoint()
+        self._persist_mirror_selection(mirror_endpoint)
 
         self.file_status.configure(text="正在加载文件列表...")
         self.tree.delete(*self.tree.get_children())
 
         def worker():
             try:
-                api = HfApi()
+                api = HfApi(endpoint=mirror_endpoint) if mirror_endpoint else HfApi()
                 tree = api.list_repo_tree(repo_id=repo_id, token=token, recursive=True)
                 files = []
                 for item in tree:
@@ -902,6 +1063,11 @@ class WizardApp(tk.Tk):
                     )
                     for f in self.file_list
                 ]
+                self.file_size_map = size_map
+                self.file_meta_map = {
+                    f: (category, ext, size, model_category)
+                    for f, category, ext, size, model_category in self.file_meta
+                }
                 self.selection_map = {path: False for path in self.file_list}
                 pending = self.pending_resume
                 if pending and pending.get("repo_id") == repo_id:
@@ -946,6 +1112,106 @@ class WizardApp(tk.Tk):
             return os.path.getsize(local_path)
         return 0
 
+    def _fix_path_encoding(self, path_value):
+        try:
+            fixed = path_value.encode("gbk").decode("utf-8")
+            return fixed
+        except Exception:
+            pass
+        try:
+            fixed = path_value.encode("utf-8").decode("gbk")
+            return fixed
+        except Exception:
+            return None
+
+    def _resolve_existing_path(self, path_value):
+        candidates = []
+        if path_value:
+            candidates.append(path_value)
+            fixed = self._fix_path_encoding(path_value)
+            if fixed:
+                candidates.append(fixed)
+        for candidate in candidates:
+            normalized = os.path.normpath(candidate)
+            if os.path.exists(normalized):
+                return normalized
+            parent = os.path.dirname(normalized)
+            basename = os.path.basename(normalized)
+            if os.path.isdir(parent):
+                try:
+                    for entry in os.listdir(parent):
+                        if entry == basename:
+                            return os.path.join(parent, entry)
+                        fixed_name = self._fix_path_encoding(entry)
+                        if fixed_name and fixed_name == basename:
+                            return os.path.join(parent, entry)
+                except OSError:
+                    pass
+        return None
+
+    def _normalize_config_paths(self):
+        changed = False
+        default_path = self.config_data.get("default_path")
+        resolved_default = self._resolve_existing_path(default_path)
+        if resolved_default and resolved_default != default_path:
+            self.config_data["default_path"] = resolved_default
+            self.dest_path_var.set(resolved_default)
+            changed = True
+
+        history = self._get_history()
+        for entry in history:
+            dest = entry.get("dest") or ""
+            folder = entry.get("folder") or ""
+            candidate = None
+            if dest and folder:
+                candidate = os.path.join(dest, folder)
+            resolved = self._resolve_existing_path(entry.get("resolved_path")) or self._resolve_existing_path(candidate)
+            if resolved and entry.get("resolved_path") != resolved:
+                entry["resolved_path"] = resolved
+                changed = True
+            if dest:
+                resolved_dest = self._resolve_existing_path(dest)
+                if resolved_dest and resolved_dest != dest:
+                    entry["dest"] = resolved_dest
+                    changed = True
+
+        pending = self.config_data.get("pending_deletes")
+        if isinstance(pending, list) and pending:
+            updated = []
+            for item in pending:
+                resolved = self._resolve_existing_path(item) or item
+                if os.path.exists(resolved):
+                    updated.append(resolved)
+            if updated != pending:
+                self.config_data["pending_deletes"] = updated
+                changed = True
+
+        if changed:
+            self._save_history()
+
+    def _format_progress(self, expected_size, local_size):
+        if expected_size is None or local_size is None:
+            return "未知"
+        if expected_size <= 0:
+            return "未知"
+        percent = min(local_size / expected_size * 100, 100.0)
+        return f"{percent:.1f}%"
+
+    def _refresh_tree_progress(self):
+        for item_id, path in self.item_to_path.items():
+            meta = self.file_meta_map.get(path)
+            if not meta:
+                continue
+            category, _ext, size, model_category = meta
+            local_size = self._get_local_size(path)
+            progress_text = self._format_progress(size, local_size)
+            if size is not None and local_size is not None:
+                remaining_text = format_size(max(size - local_size, 0))
+            else:
+                remaining_text = "未知"
+            self.tree.set(item_id, "progress", progress_text)
+            self.tree.set(item_id, "remaining", remaining_text)
+
     def _apply_filters(self):
         open_groups = set()
         for item in self.tree.get_children():
@@ -973,12 +1239,13 @@ class WizardApp(tk.Tk):
             if keyword and keyword not in path.lower():
                 continue
             local_size = self._get_local_size(path)
+            progress_text = self._format_progress(size, local_size)
             remaining = None
             if size is not None and local_size is not None:
                 remaining = max(size - local_size, 0)
             if only_incomplete and remaining is not None and remaining == 0:
                 continue
-            filtered.append((path, category, ext, size, model_category, remaining))
+            filtered.append((path, category, ext, size, model_category, remaining, progress_text))
 
         groups = {}
         for item in filtered:
@@ -990,7 +1257,7 @@ class WizardApp(tk.Tk):
             if model_category in self.open_groups:
                 self.tree.item(parent, open=True)
             self.group_to_children[parent] = []
-            for path, category, _ext, size, _model, remaining in items:
+            for path, category, _ext, size, _model, remaining, progress_text in items:
                 checked = "☑" if self.selection_map.get(path) else "☐"
                 child = self.tree.insert(
                     parent,
@@ -999,6 +1266,7 @@ class WizardApp(tk.Tk):
                     values=(
                         model_category,
                         format_size(size),
+                        progress_text,
                         format_size(remaining) if remaining is not None else "未知",
                         category,
                     ),
@@ -1092,6 +1360,7 @@ class WizardApp(tk.Tk):
         token_saved = "是" if self.save_token_var.get() else "否"
         thread_info = "默认" if not self.use_threads_var.get() else str(self.thread_count_var.get())
         files = f"已选 {len(self._get_selected_files())} 个文件"
+        mirror_label = self._format_mirror_label()
 
         summary = (
             f"仓库名: {repo_id}\n"
@@ -1099,6 +1368,7 @@ class WizardApp(tk.Tk):
             f"保存文件夹: {folder}\n"
             f"保存Token: {token_saved}\n"
             f"线程数: {thread_info}\n"
+            f"镜像: {mirror_label}\n"
             f"下载范围: {files}\n"
         )
 
@@ -1115,11 +1385,14 @@ class WizardApp(tk.Tk):
             if path not in selected:
                 continue
             local_size = self._get_local_size(path)
+            progress_text = self._format_progress(size, local_size)
             if size is None or local_size is None:
                 continue
             remaining = max(size - local_size, 0)
             if remaining > 0:
-                self.incomplete_tree.insert("", tk.END, text=path, values=(format_size(remaining),))
+                self.incomplete_tree.insert(
+                    "", tk.END, text=path, values=(progress_text, format_size(remaining))
+                )
                 remaining_total += remaining
         self.remaining_label.configure(text=f"剩余: {format_size(remaining_total)}")
 
@@ -1131,6 +1404,8 @@ class WizardApp(tk.Tk):
         dest = self.dest_path_var.get().strip()
         folder = self.folder_name_var.get().strip()
         save_token_flag = self.save_token_var.get()
+        mirror_endpoint = self._get_mirror_endpoint()
+        self._persist_mirror_selection(mirror_endpoint)
 
         if save_token_flag:
             self.config_data["token"] = token
@@ -1147,6 +1422,7 @@ class WizardApp(tk.Tk):
         os.makedirs(local_dir, exist_ok=True)
 
         targets = self._get_selected_files()
+        parallel_mode = self.use_threads_var.get() and len(targets) > 1 and int(self.thread_count_var.get()) > 1
 
         size_map = {path: size for path, _c, _e, size, _m in self.file_meta}
         total_bytes = sum(size_map.get(p) or 0 for p in targets)
@@ -1162,17 +1438,19 @@ class WizardApp(tk.Tk):
                 "last_poll_time": None,
                 "last_overall_value": 0,
                 "last_history_time": None,
+                "last_tree_refresh": None,
+                "last_progress_time": time.monotonic(),
+                "last_stall_warn": None,
                 "targets": targets,
                 "local_dir": local_dir,
                 "size_map": size_map,
+                "parallel": parallel_mode,
                 "chunk_size": self.chunk_size_var.get(),
             }
         )
 
         self.overall_progress.configure(maximum=total_bytes if total_bytes > 0 else 1)
-        self.file_progress.configure(maximum=1)
         self.overall_progress["value"] = 0
-        self.file_progress["value"] = 0
         self.overall_progress.configure(mode="determinate" if total_bytes > 0 else "indeterminate")
         if total_bytes == 0:
             self.overall_progress.start(10)
@@ -1181,8 +1459,10 @@ class WizardApp(tk.Tk):
 
         self.stop_requested = False
         self._log("开始下载...\n")
+        self._log(f"镜像: {self._format_mirror_label()}\n")
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
+        self.after(0, self._poll_progress)
 
         def worker():
             completed_bytes = 0
@@ -1191,7 +1471,6 @@ class WizardApp(tk.Tk):
                 if self.use_threads_var.get() and len(targets) > 1:
                     max_workers = max(1, int(self.thread_count_var.get()))
                     self.after(0, lambda: self.file_label.configure(text="当前文件: 并行下载中"))
-                    self.after(0, self._poll_progress)
 
                     def download_one(path):
                         while self.stop_requested:
@@ -1202,7 +1481,7 @@ class WizardApp(tk.Tk):
                         self.download_state["current_path"] = path
                         self.download_state["current_size"] = size
                         self.download_state["current_local"] = local_path
-                        self._download_file_http(repo_id, path, token, local_path, size)
+                        self._download_file_http(repo_id, path, token, local_path, size, mirror_endpoint)
 
                     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1223,9 +1502,8 @@ class WizardApp(tk.Tk):
                         self.download_state["current_size"] = size
                         self.download_state["current_local"] = local_path
                         self.after(0, lambda p=path: self.file_label.configure(text=f"当前文件: {p}"))
-                        self.after(0, self._poll_progress)
 
-                        self._download_file_http(repo_id, path, token, local_path, size)
+                        self._download_file_http(repo_id, path, token, local_path, size, mirror_endpoint)
 
                 self.after(0, lambda: self._log(f"下载完成: {local_dir}\n"))
                 self.after(0, lambda: messagebox.showinfo("完成", f"完成\\n下载已保存到: {local_dir}"))
@@ -1243,12 +1521,15 @@ class WizardApp(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _download_file_http(self, repo_id, filename, token, local_path, expected_size):
+    def _download_file_http(self, repo_id, filename, token, local_path, expected_size, mirror_endpoint):
         if expected_size is not None and os.path.exists(local_path):
             if os.path.getsize(local_path) >= expected_size:
                 return
 
-        url = hf_hub_url(repo_id=repo_id, filename=filename)
+        if mirror_endpoint:
+            url = hf_hub_url(repo_id=repo_id, filename=filename, endpoint=mirror_endpoint)
+        else:
+            url = hf_hub_url(repo_id=repo_id, filename=filename)
         headers = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -1260,14 +1541,22 @@ class WizardApp(tk.Tk):
         if resume_from > 0:
             headers["Range"] = f"bytes={resume_from}-"
 
-        with requests.get(url, headers=headers, stream=True) as response:
-            if response.status_code == 416:
-                resume_from = 0
-                headers.pop("Range", None)
-                with requests.get(url, headers=headers, stream=True) as retry_response:
-                    self._write_response(retry_response, local_path, resume_from)
-            else:
-                self._write_response(response, local_path, resume_from)
+        for attempt in range(REQUEST_RETRIES):
+            try:
+                with requests.get(url, headers=headers, stream=True, timeout=REQUEST_TIMEOUT) as response:
+                    if response.status_code == 416:
+                        resume_from = 0
+                        headers.pop("Range", None)
+                        with requests.get(url, headers=headers, stream=True, timeout=REQUEST_TIMEOUT) as retry_response:
+                            self._write_response(retry_response, local_path, resume_from)
+                    else:
+                        self._write_response(response, local_path, resume_from)
+                return
+            except requests.RequestException as exc:
+                if attempt == REQUEST_RETRIES - 1:
+                    source = self._format_mirror_label()
+                    raise RuntimeError(f"网络请求失败（{source}）: {exc}") from exc
+                time.sleep(1 + attempt)
 
     def _write_response(self, response, local_path, resume_from):
         if response.status_code not in {200, 206}:
@@ -1294,16 +1583,15 @@ class WizardApp(tk.Tk):
         if current_local and os.path.exists(current_local):
             current_bytes = os.path.getsize(current_local)
 
-        if current_size:
-            self.file_progress.configure(mode="determinate", maximum=current_size)
-            self.file_progress["value"] = min(current_bytes, current_size)
-        else:
-            self.file_progress.configure(mode="indeterminate")
-            self.file_progress.start(10)
+        if self.download_state.get("parallel"):
+            self.file_label.configure(text="当前文件: 并行下载中（总进度为所有文件汇总）")
 
         overall_value = self._calculate_overall_bytes()
-        self.download_state["completed_bytes"] = overall_value
         now = time.monotonic()
+        last_overall = self.download_state.get("last_overall_value", 0)
+        if overall_value > last_overall:
+            self.download_state["last_progress_time"] = now
+        self.download_state["completed_bytes"] = overall_value
         last_time = self.download_state.get("last_poll_time")
         last_value = self.download_state.get("last_overall_value", 0)
         if last_time is None:
@@ -1325,10 +1613,10 @@ class WizardApp(tk.Tk):
             remaining = max(total_bytes - overall_value, 0)
             self.remaining_label.configure(text=f"剩余: {format_size(remaining)}")
         else:
-            self.overall_label.configure(text="总进度: 未知")
+            self.overall_label.configure(text=f"总进度: {format_size(overall_value)} / 未知")
         self.speed_label.configure(text=f"速度: {format_size(speed)}/s")
 
-        if current_path:
+        if current_path and not self.download_state.get("parallel"):
             if current_size:
                 self.file_label.configure(
                     text=f"当前文件: {current_path} ({format_size(current_bytes)} / {format_size(current_size)})"
@@ -1341,11 +1629,24 @@ class WizardApp(tk.Tk):
             self.download_state["last_history_time"] = now
             self._record_history_progress(overall_value)
 
+        last_tree = self.download_state.get("last_tree_refresh")
+        if last_tree is None or now - last_tree > 1.0:
+            self.download_state["last_tree_refresh"] = now
+            self._refresh_tree_progress()
+            self._refresh_incomplete_list()
+
+        last_progress = self.download_state.get("last_progress_time")
+        if last_progress is not None and overall_value < total_bytes:
+            if now - last_progress > STALL_TIMEOUT:
+                last_warn = self.download_state.get("last_stall_warn")
+                if last_warn is None or now - last_warn > STALL_TIMEOUT:
+                    self.download_state["last_stall_warn"] = now
+                    self._log("下载可能停滞：请检查网络/镜像，或点击暂停后恢复。\n")
+
         self.after(300, self._poll_progress)
 
     def _download_done(self):
         self.overall_progress.stop()
-        self.file_progress.stop()
         self.start_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
         self.current_session_id = None
@@ -1365,6 +1666,101 @@ class WizardApp(tk.Tk):
         self.log.insert(tk.END, text)
         self.log.see(tk.END)
         self.log.configure(state="disabled")
+
+    def _queue_pending_delete(self, target):
+        pending = self.config_data.get("pending_deletes")
+        if not isinstance(pending, list):
+            pending = []
+        if target not in pending:
+            pending.append(target)
+            self.config_data["pending_deletes"] = pending
+            self._save_history()
+
+    def _process_pending_deletes(self):
+        pending = self.config_data.get("pending_deletes")
+        if not isinstance(pending, list) or not pending:
+            return
+        remaining = []
+        for target in pending:
+            resolved = self._resolve_existing_path(target) or target
+            ok, _reason = self._delete_path(resolved)
+            if not ok:
+                remaining.append(resolved)
+        self.config_data["pending_deletes"] = remaining
+        self._save_history()
+
+    def _delete_path(self, target):
+        if not target or not os.path.exists(target):
+            return True, "本地路径不存在"
+        last_error = None
+        try:
+            send2trash(target)
+            return True, "已移动到回收站"
+        except Exception as exc:
+            last_error = f"回收站失败: {exc}"
+            self._log(f"回收站失败: {exc}\n")
+        def onerror(_func, path, _exc):
+            try:
+                os.chmod(path, 0o700)
+            except OSError:
+                pass
+        for _ in range(3):
+            if not os.path.exists(target):
+                return True, "本地路径不存在"
+            if os.path.isdir(target):
+                shutil.rmtree(target, onerror=onerror)
+            else:
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
+            time.sleep(0.2)
+            if not os.path.exists(target):
+                return True, "删除成功"
+        if os.path.isdir(target):
+            subprocess.run(
+                ["cmd", "/c", f'rmdir /s /q "{target}"'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            subprocess.run(
+                ["cmd", "/c", f'del /f /q "{target}"'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        if not os.path.exists(target):
+            return True, "删除成功"
+        escaped = target.replace("'", "''")
+        ps_cmd = f"Remove-Item -LiteralPath '{escaped}' -Recurse -Force -ErrorAction SilentlyContinue"
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if not os.path.exists(target):
+            return True, "删除成功"
+        if os.path.exists(target):
+            return False, "删除失败（可能被占用）"
+        if os.path.isdir(target):
+            return False, "删除文件夹失败"
+        return False, "删除文件失败"
+
+    def _request_exit(self):
+        if self.download_state.get("running"):
+            if not messagebox.askyesno("确认退出", "退出将停止下载，是否继续？"):
+                return
+            self.stop_requested = True
+            for _ in range(50):
+                if not self.download_state.get("running"):
+                    break
+                self.update()
+                time.sleep(0.1)
+            if self.download_state.get("running"):
+                if not messagebox.askyesno("强制退出", "仍在占用下载进程，是否强制退出？"):
+                    return
+                os._exit(0)
+        self.destroy()
 
     def _calculate_overall_bytes(self):
         targets = self.download_state.get("targets") or []
@@ -1398,6 +1794,9 @@ class WizardApp(tk.Tk):
         self.stop_requested = False
         self.resume_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
+        self.download_state["last_poll_time"] = None
+        self.download_state["last_progress_time"] = time.monotonic()
+        self.after(0, self._poll_progress)
         self._log("继续下载...\n")
 
 
