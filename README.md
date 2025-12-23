@@ -32,8 +32,10 @@
 
 
 ### 方式 B：使用源码运行
-输入以下命令进行下载
+输入以下命令进行下载：
+
 git clone https://github.com/Yifo98/HF_Model_Downloader.git
+
 1. 运行 `1.安装依赖.bat`（会创建 `.venv`）
 2. 运行 `2.一键启动.bat`
 
