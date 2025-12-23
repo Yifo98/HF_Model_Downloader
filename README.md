@@ -19,11 +19,17 @@
 ![确认下载](assets/screenshots/step-4-confirm.png)
 ![历史记录](assets/screenshots/step-5-history.png)
 
-## 使用压缩包（推荐）
-1. 解压 `HF_Model_Downloader.zip`
-2. 双击 `HF_Model_Downloader.exe` 直接运行
+## 下载方式
+### 方式 A：直接下载解压包（推荐）
+1. 打开 Releases 下载： https://github.com/Yifo98/HF_Model_Downloader/releases
+2. 解压 `HF_Model_Downloader.zip`
+3. 双击 `HF_Model_Downloader.exe` 直接运行
 
-说明：使用压缩包不需要安装 Python 或创建 venv。
+说明：使用解压包不需要安装 Python 或创建 venv。
+
+### 方式 B：使用源码运行
+1. 运行 `1.安装依赖.bat`（会创建 `.venv`）
+2. 运行 `2.一键启动.bat`
 
 ## 功能清单
 - 输入仓库名与 Token
