@@ -1,0 +1,11 @@
+# Bundled outputs
+HF_Model_Downloader.zip
+
+# Build artifacts
+/dist/
+/build/
+*_build_appdata/
+*.spec
+
+# Virtual environment
+.venv/
