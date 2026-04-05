@@ -1,11 +1,21 @@
-# Bundled outputs
+# Shareable outputs
 HF_Model_Downloader.zip
+release/*
+!release/*/
+release/*/*
+!release/*/RELEASE-NOTES.md
 
-# Build artifacts
-/dist/
+# Node / Electron
+node_modules/
+dist/
+dist-electron/
+*.tsbuildinfo
+
+# Legacy Python build artifacts
 /build/
 *_build_appdata/
 *.spec
-
-# Virtual environment
 .venv/
+
+# Local app state
+.DS_Store

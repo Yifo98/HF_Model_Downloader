@@ -1,0 +1,90 @@
+:root {
+  --bg: #0d1624;
+  --bg-2: #111d2f;
+  --panel: #192334;
+  --panel-strong: #1f2b40;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-soft: rgba(255, 255, 255, 0.05);
+  --text: #d7e2f1;
+  --text-strong: #f4f8ff;
+  --text-muted: #93a6bc;
+  --accent: #ffb05c;
+  --accent-2: #74d7ff;
+  --success-bg: rgba(103, 222, 170, 0.16);
+  --warn-bg: rgba(255, 186, 94, 0.16);
+  --danger-bg: rgba(255, 113, 113, 0.16);
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255, 168, 76, 0.24), rgba(255, 168, 76, 0) 32%),
+    radial-gradient(circle at bottom right, rgba(84, 195, 255, 0.2), rgba(84, 195, 255, 0) 30%),
+    linear-gradient(180deg, var(--bg), var(--bg-2));
+  font-family: 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='ember'] {
+  --bg: #1a1010;
+  --bg-2: #241716;
+  --panel: #2a1d1a;
+  --panel-strong: #332420;
+  --line: rgba(255, 214, 186, 0.1);
+  --line-soft: rgba(255, 214, 186, 0.05);
+  --text: #f2ddd4;
+  --text-strong: #fff6f1;
+  --text-muted: #d3aea0;
+  --accent: #ff9a5f;
+  --accent-2: #ffcf7f;
+  --success-bg: rgba(102, 221, 169, 0.14);
+  --warn-bg: rgba(255, 177, 94, 0.18);
+  --danger-bg: rgba(255, 113, 113, 0.18);
+}
+
+:root[data-theme='aurora'] {
+  --bg: #071923;
+  --bg-2: #0d2431;
+  --panel: #112937;
+  --panel-strong: #173444;
+  --line: rgba(178, 241, 255, 0.12);
+  --line-soft: rgba(178, 241, 255, 0.05);
+  --text: #d7eef4;
+  --text-strong: #f1fcff;
+  --text-muted: #91bec8;
+  --accent: #75dcff;
+  --accent-2: #8cffc7;
+  --success-bg: rgba(140, 255, 199, 0.14);
+  --warn-bg: rgba(117, 220, 255, 0.16);
+  --danger-bg: rgba(255, 129, 129, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 1200px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(255, 168, 76, 0.22), rgba(255, 168, 76, 0) 26%),
+    radial-gradient(circle at bottom right, rgba(84, 195, 255, 0.18), rgba(84, 195, 255, 0) 24%),
+    linear-gradient(180deg, var(--bg), var(--bg-2));
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}

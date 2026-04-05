@@ -1,104 +1,98 @@
-﻿# HF Model Downloader (Windows)
+# HF Model Downloader
 
 ![HF Model Downloader Logo](assets/logo.svg)
 
+HF Model Downloader 是一个面向 Hugging Face 的桌面下载器  
+支持仓库清单浏览 文件筛选 推荐方案 历史记录 失败重试和多 Endpoint 下载
 
-一个专注于 Hugging Face 模型下载的 Windows 桌面工具：可选文件、分组分类、显示进度与速度，支持断点续传与历史记录。
+## 下载
 
-## 亮点
-- 直连下载：支持断点续传与未完成续下
-- 文件清单：分类分组、搜索过滤、仅看未完成
-- 下载体验：整体 + 单文件进度、速度显示、智能并行与分块
-- 历史记录：已完成 / 未完成分离，可续传与删除
-- 隐私安全：打包不包含本机 Token / 历史记录
+- Releases 页面：`https://github.com/Yifo98/HF_Model_Downloader/releases`
+- macOS：优先下载 `HF Model Downloader-*-mac.zip`
+- Windows：优先下载 `HF Model Downloader-*-win.zip`，也可以直接使用便携版 `.exe`
 
-## 使用流程
-![开始界面](assets/screenshots/step-1-start.png)
-![选择下载路径与线程](assets/screenshots/step-2-settings.png)
-![选择要下载的文件](assets/screenshots/step-3-files.png)
-![确认下载](assets/screenshots/step-4-confirm.png)
-![历史记录](assets/screenshots/step-5-history.png)
+标准分享包目标就是解压即用
 
-## 下载方式
-### 方式 A：直接下载解压包（推荐）
-1. 打开 Releases 下载： https://github.com/Yifo98/HF_Model_Downloader/releases
-2. 解压 `HF_Model_Downloader.zip`
-3. 双击 `HF_Model_Downloader.exe` 直接运行
+## 功能概览
 
-说明：使用解压包不需要安装 Python 或创建 venv。
+- 输入 `owner/repo` 后直接拉取文件清单
+- 支持官方源 HF Mirror 和自定义 Endpoint
+- 可按文件名 路径 分类和族群筛选结果
+- 提供推荐方案 帮你快速选模型权重或完整推理集
+- 支持并发下载 历史记录 打开目录 定位文件和失败重试
+- 桌面端运行时会自动管理缓存和应用数据目录
 
-### 镜像节点与测试（可选）
-如果网络不稳定或 VPN 流量有限，可在“下载来源”中选择镜像或自定义镜像地址（需以 `https://` 开头）。支持“测试连接”验证可用性。官方直连不在镜像列表内。私有模型仍需要 Token。
+## 使用方式
 
+1. 填写 `owner/repo`
+2. 选择下载目录
+3. 选择官方源 镜像源 或自定义 Endpoint
+4. 加载文件清单
+5. 用筛选和推荐方案勾选需要的文件
+6. 点击开始下载 并在右侧查看队列和历史
 
-### 方式 B：使用源码运行
-输入以下命令进行下载：
+## 发布包说明
 
-```powershell
-git clone https://github.com/Yifo98/HF_Model_Downloader.git
-```
+### macOS
 
-1. 运行 `1.安装依赖.bat`（会创建 `.venv`）
-2. 运行 `2.一键启动.bat`
+当前 macOS 分享包为未签名应用
 
-## 功能清单
-- 输入仓库名与 Token
-- 选择保存路径与文件夹名
-- 线程数推荐与可选设置
-- 文件列表加载、类型过滤、分类与搜索
-- 显示文件大小与模型类型（文生图 / 文生视频 / 图生图 / LoRA 等）
-- 按模型大类分组并显示数量，可展开 / 收起
-- 勾选即代表下载目标，支持全选 / 全不选
-- 支持单个 / 多个文件下载
-- 下载进度：整体 + 单文件进度条
-- 显示未完成下载清单与剩余大小
-- 同步显示下载速度
-- 支持多文件并行下载并给出推荐并行数
-- 支持智能分块并显示推荐分块大小
-- “加载文件列表”和“开始下载”已做高亮提示
-- 支持暂停与恢复下载
-- 历史记录可查看已完成 / 未完成任务，并支持继续下载
-- 删除记录时可将本地文件夹移动到回收站
-- 退出会提示停止下载并结束占用
-- 下载来源可选官方或镜像，并支持镜像连通性测试
+首次在其他 Mac 上运行时：
 
-## 打包
-```powershell
-3.一键打包.bat
-```
-输出：`HF_Model_Downloader.zip`
+1. 解压 zip
+2. 右键应用并选择 `打开`
+3. 如果系统拦截 在系统设置中选择 `仍要打开`
 
-说明：打包过程不会包含本机 Token / 历史记录，也不会打包 `.venv`。
+### Windows
 
-## 源码运行（可选）
+当前 Windows 分享包为未签名便携版
+
+首次在其他电脑上运行时 如果 SmartScreen 弹出提示：
+
+1. 点击 `更多信息`
+2. 点击 `仍要运行`
+
+## 本地开发
+
 ### 安装依赖
-```powershell
-1.安装依赖.bat
-```
-会在当前目录创建 `.venv` 并安装依赖。
 
-### 启动桌面版
-```powershell
-2.一键启动.bat
+```bash
+npm install
 ```
 
-## 配置与数据位置
-- Token 保存：`%APPDATA%\hf_downloader_gui\config.json`
-- 默认下载路径会自动保存，下次启动自动填充
+### 启动开发版
 
-## 常见问题
-### 解压后双击没有反应？
-- 请确认系统未拦截下载文件（右键 -> 属性 -> 解除锁定）
-- 若提示缺 DLL，安装微软 VC 运行库后重试
+```bash
+npm run dev
+```
 
-### 下载速度慢？
-- 可在设置中调整并行数与分块大小
-- 部分模型仓库本身限速，请耐心等待
+### macOS 启动器
 
-### 删除失败（文件被占用）怎么办？
-如果删除记录时提示“删除失败（可能被占用）”，可使用 IObit Unlocker 手动解锁并删除：  
-下载地址：https://www.iobit.com/en/iobit-unlocker.php
+仓库根目录保留了一个 macOS 启动器：
 
-![IObit 右键入口](assets/screenshots/IObit%20Unlocker1.png)
-![IObit 解锁并删除](assets/screenshots/IObit%20Unlocker2.png)
+- `Launch HF Model Downloader.command`
 
+它会调用 `scripts/launch-mac.sh`  
+如果本机还没安装依赖 会先执行一次 `npm install`
+
+### 本地打包
+
+```bash
+npm run build
+npm run dist:mac
+npm run dist:win
+```
+
+如果你在 Windows 本机上执行分享打包：
+
+```powershell
+npm run dist:share
+```
+
+## 依赖说明
+
+如果你使用的是 GitHub Releases 中的标准分享包 一般不需要额外安装 Node.js 或 Python  
+只有在你打算直接运行源码时 才需要先安装：
+
+- Node.js 20+
+- npm

@@ -1,0 +1,72 @@
+{
+  "name": "hf-model-downloader",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "description": "Electron front-end for browsing and downloading Hugging Face model files.",
+  "author": "Yifo",
+  "scripts": {
+    "dev:web": "vite",
+    "dev:electron": "node scripts/dev-electron.mjs",
+    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
+    "build:web": "tsc -p tsconfig.app.json && vite build --base ./",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:web && npm run build:electron",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "start": "electron .",
+    "launch:mac": "zsh scripts/launch-mac.sh",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "zsh scripts/build-mac-share.sh",
+    "dist:win": "zsh scripts/build-win-share.sh",
+    "dist:share": "powershell -ExecutionPolicy Bypass -File scripts/build-shareable-package.ps1",
+    "test": "npm run build:electron && node --test dist-electron/**/*.test.js"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "electron": "^41.0.2",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.4.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vite": "^7.1.7"
+  },
+  "build": {
+    "appId": "com.yifo.hfdownloader",
+    "productName": "HF Model Downloader",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "electron/preload.cjs",
+      "package.json",
+      "assets/**"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    }
+  }
+}
