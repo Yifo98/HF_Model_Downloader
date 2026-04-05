@@ -7,9 +7,9 @@ HF Model Downloader 是一个面向 Hugging Face 的桌面下载器
 
 ## 下载
 
-- Releases 页面：`https://github.com/Yifo98/HF_Model_Downloader/releases`
-- macOS：优先下载 `HF Model Downloader-*-mac.zip`
-- Windows：优先下载 `HF Model Downloader-*-win.zip`，也可以直接使用便携版 `.exe`
+- Releases 页面：(https://github.com/Yifo98/HF_Model_Downloader/releases/latest)
+- macOS：优先下载 `HF Model Downloader-2.0.0-arm64-mac.zip`
+- Windows：优先下载 `HF Model Downloader-2.0.0-win.zip`，也可以直接使用便携版 `.exe`
 
 标准分享包目标就是解压即用
 
