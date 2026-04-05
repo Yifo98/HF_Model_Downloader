@@ -96,3 +96,19 @@ npm run dist:share
 
 - Node.js 20+
 - npm
+
+## 版本规则
+
+- 小改动或修复 bug：升级 `patch`，例如 `2.0.0 -> 2.0.1`
+- 功能增强但不改桌面主形态：升级 `minor`，例如 `2.0.0 -> 2.1.0`
+- 桌面架构或产品主流程发生明显代际变化：升级 `major`，例如 `2.0.0 -> 3.0.0`
+
+当前版本号唯一来源是 `package.json`。打包文件名、`release/<version>/` 目录和自动生成的发布说明都会跟着同步。
+
+常用命令：
+
+```bash
+npm run version:patch
+npm run version:minor
+npm run version:major
+```

@@ -7,6 +7,9 @@
   "description": "Electron front-end for browsing and downloading Hugging Face model files.",
   "author": "Yifo",
   "scripts": {
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version",
     "dev:web": "vite",
     "dev:electron": "node scripts/dev-electron.mjs",
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
