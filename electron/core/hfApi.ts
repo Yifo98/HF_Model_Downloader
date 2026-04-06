@@ -1,3 +1,5 @@
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import type { EndpointTestResult, FileManifestItem } from './types.js'
 
 const OFFICIAL_ENDPOINT = 'https://huggingface.co'
@@ -61,17 +63,75 @@ function buildHeaders(token: string | null) {
   return headers
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+type ResponseSnapshot = {
+  ok: boolean
+  status: number
+  statusText: string
+  body: string
+}
+
+function readErrorMessage(body: string) {
+  if (!body.trim()) return ''
   try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    })
-  } finally {
-    clearTimeout(timeout)
+    const payload = JSON.parse(body) as { error?: string; message?: string }
+    return payload.error || payload.message || body.trim()
+  } catch {
+    return body.trim()
   }
+}
+
+async function requestSnapshot(url: string, headers: Headers, family?: 4): Promise<ResponseSnapshot> {
+  const target = new URL(url)
+  const requestImpl = target.protocol === 'http:' ? httpRequest : httpsRequest
+
+  return await new Promise<ResponseSnapshot>((resolve, reject) => {
+    const req = requestImpl(target, {
+      method: 'GET',
+      headers: Object.fromEntries(headers.entries()),
+      timeout: REQUEST_TIMEOUT_MS,
+      family,
+    }, (res) => {
+      const chunks: Buffer[] = []
+
+      res.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      })
+
+      res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8')
+        resolve({
+          ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+          status: res.statusCode ?? 0,
+          statusText: res.statusMessage ?? '',
+          body,
+        })
+      })
+    })
+
+    req.on('timeout', () => {
+      req.destroy(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`))
+    })
+
+    req.on('error', (error) => {
+      reject(error)
+    })
+
+    req.end()
+  })
+}
+
+async function requestSnapshotWithFallback(url: string, headers: Headers) {
+  let lastError: Error | null = null
+
+  for (const family of [4, undefined] as const) {
+    try {
+      return await requestSnapshot(url, headers, family)
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown request error')
+    }
+  }
+
+  throw lastError ?? new Error('Unknown request error')
 }
 
 function classifyFamily(path: string) {
@@ -101,9 +161,9 @@ export function buildDownloadUrl(endpoint: string, repoId: string, filePath: str
   return `${normalized}/${repoId}/resolve/main/${encodedSegments}?download=1`
 }
 
-function buildApiErrorMessage(prefix: string, response: Response, detail?: string) {
+function buildApiErrorMessage(prefix: string, status: number, detail?: string) {
   const suffix = detail ? ` · ${detail}` : ''
-  return `${prefix}：HTTP ${response.status}${suffix}`
+  return `${prefix}：HTTP ${status}${suffix}`
 }
 
 function toManifestItems(payload: Array<Record<string, unknown>>) {
@@ -123,36 +183,27 @@ function toManifestItems(payload: Array<Record<string, unknown>>) {
     .filter((entry) => entry.path && entry.type === 'file')
 }
 
-async function readErrorDetail(response: Response) {
-  try {
-    const payload = await response.json() as { error?: string; message?: string }
-    return payload.error || payload.message || ''
-  } catch {
-    return ''
-  }
-}
-
 async function listTreeFiles(endpoint: string, repoId: string, token: string | null) {
   const treeUrl = `${normalizeEndpoint(endpoint)}/api/models/${encodeRepoId(repoId)}/tree/main?recursive=1&expand=1`
-  const response = await fetchWithTimeout(treeUrl, { headers: buildHeaders(token) })
+  const response = await requestSnapshotWithFallback(treeUrl, buildHeaders(token))
   if (!response.ok) {
-    const detail = await readErrorDetail(response)
-    throw new Error(buildApiErrorMessage('无法读取文件清单', response, detail))
+    const detail = readErrorMessage(response.body)
+    throw new Error(buildApiErrorMessage('无法读取文件清单', response.status, detail))
   }
 
-  const payload = await response.json() as Array<Record<string, unknown>>
+  const payload = JSON.parse(response.body) as Array<Record<string, unknown>>
   return toManifestItems(payload)
 }
 
 async function listSiblingFiles(endpoint: string, repoId: string, token: string | null) {
   const metadataUrl = `${normalizeEndpoint(endpoint)}/api/models/${encodeRepoId(repoId)}`
-  const response = await fetchWithTimeout(metadataUrl, { headers: buildHeaders(token) })
+  const response = await requestSnapshotWithFallback(metadataUrl, buildHeaders(token))
   if (!response.ok) {
-    const detail = await readErrorDetail(response)
-    throw new Error(buildApiErrorMessage('无法读取仓库元数据', response, detail))
+    const detail = readErrorMessage(response.body)
+    throw new Error(buildApiErrorMessage('无法读取仓库元数据', response.status, detail))
   }
 
-  const payload = await response.json() as { siblings?: Array<{ rfilename?: string; size?: number }> }
+  const payload = JSON.parse(response.body) as { siblings?: Array<{ rfilename?: string; size?: number }> }
   const rows = (payload.siblings ?? [])
     .map((item) => {
       const path = typeof item.rfilename === 'string' ? item.rfilename : ''
@@ -176,9 +227,7 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
   try {
     for (const probe of getEndpointProbePlan(endpoint, Boolean(token?.trim()))) {
       try {
-        const response = await fetchWithTimeout(probe.url, {
-          headers: buildHeaders(token),
-        })
+        const response = await requestSnapshotWithFallback(probe.url, buildHeaders(token))
 
         if (response.ok) {
           return {
@@ -190,7 +239,7 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
 
         lastFailure = probe.failureMessage ?? `HTTP ${response.status}`
         if (response.status !== 401 && response.status !== 403) {
-          const detail = await readErrorDetail(response)
+          const detail = readErrorMessage(response.body)
           if (detail) {
             lastFailure = `${lastFailure} · ${detail}`
           }
@@ -198,7 +247,7 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
           lastFailure = `${lastFailure} · HTTP ${response.status}`
         }
       } catch (error) {
-        lastFailure = error instanceof Error ? error.message : '连接失败'
+        lastFailure = error instanceof Error ? `网络请求失败 · ${error.message}` : '连接失败'
       }
     }
   } catch (error) {

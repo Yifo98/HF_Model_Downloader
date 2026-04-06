@@ -118,6 +118,7 @@ cat > "$README_PATH" <<'EOF'
 HF Model Downloader for macOS
 
 This build is an unsigned macOS app bundle packaged as a zip.
+The current 2.0.1 build also includes the latest layout adjustments, so the default window should adapt more cleanly on smaller screens.
 
 Before first use on another Mac:
 1. Unzip the archive.
