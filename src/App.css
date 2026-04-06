@@ -193,6 +193,23 @@ select {
   color: var(--text-strong);
 }
 
+select {
+  color-scheme: dark;
+  background-color: var(--panel-strong);
+}
+
+select option,
+select optgroup {
+  background-color: var(--panel-strong);
+  color: var(--text-strong);
+}
+
+select option:checked,
+select option:hover {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #07101b;
+}
+
 .input-with-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

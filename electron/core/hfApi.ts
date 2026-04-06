@@ -1,6 +1,7 @@
 import type { EndpointTestResult, FileManifestItem } from './types.js'
 
 const OFFICIAL_ENDPOINT = 'https://huggingface.co'
+const REQUEST_TIMEOUT_MS = 12000
 
 function trimSlash(value: string) {
   return value.trim().replace(/\/+$/, '')
@@ -8,6 +9,39 @@ function trimSlash(value: string) {
 
 export function normalizeEndpoint(value: string) {
   return trimSlash(value) || OFFICIAL_ENDPOINT
+}
+
+type EndpointProbe = {
+  url: string
+  successMessage: string
+  failureMessage?: string
+}
+
+export function getEndpointProbePlan(endpoint: string, hasToken: boolean) {
+  const normalized = normalizeEndpoint(endpoint)
+  const probes: EndpointProbe[] = []
+
+  if (normalized === OFFICIAL_ENDPOINT && hasToken) {
+    probes.push({
+      url: `${normalized}/api/whoami-v2`,
+      successMessage: 'Token 有效 官方源可访问',
+      failureMessage: 'Token 无效或当前网络无法访问官方鉴权接口',
+    })
+  }
+
+  probes.push({
+    url: normalized === OFFICIAL_ENDPOINT
+      ? `${normalized}/api/models/openai-community/gpt2`
+      : `${normalized}/api/models?limit=1`,
+    successMessage: normalized === OFFICIAL_ENDPOINT ? '官方源可访问' : 'Endpoint 可访问',
+  })
+
+  probes.push({
+    url: `${normalized}/robots.txt`,
+    successMessage: '基础连通性正常',
+  })
+
+  return probes
 }
 
 function encodeRepoId(repoId: string) {
@@ -25,6 +59,19 @@ function buildHeaders(token: string | null) {
     headers.set('Authorization', `Bearer ${token.trim()}`)
   }
   return headers
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function classifyFamily(path: string) {
@@ -87,7 +134,7 @@ async function readErrorDetail(response: Response) {
 
 async function listTreeFiles(endpoint: string, repoId: string, token: string | null) {
   const treeUrl = `${normalizeEndpoint(endpoint)}/api/models/${encodeRepoId(repoId)}/tree/main?recursive=1&expand=1`
-  const response = await fetch(treeUrl, { headers: buildHeaders(token) })
+  const response = await fetchWithTimeout(treeUrl, { headers: buildHeaders(token) })
   if (!response.ok) {
     const detail = await readErrorDetail(response)
     throw new Error(buildApiErrorMessage('无法读取文件清单', response, detail))
@@ -99,7 +146,7 @@ async function listTreeFiles(endpoint: string, repoId: string, token: string | n
 
 async function listSiblingFiles(endpoint: string, repoId: string, token: string | null) {
   const metadataUrl = `${normalizeEndpoint(endpoint)}/api/models/${encodeRepoId(repoId)}`
-  const response = await fetch(metadataUrl, { headers: buildHeaders(token) })
+  const response = await fetchWithTimeout(metadataUrl, { headers: buildHeaders(token) })
   if (!response.ok) {
     const detail = await readErrorDetail(response)
     throw new Error(buildApiErrorMessage('无法读取仓库元数据', response, detail))
@@ -124,30 +171,44 @@ async function listSiblingFiles(endpoint: string, repoId: string, token: string 
 
 export async function testEndpoint(endpoint: string, token: string | null): Promise<EndpointTestResult> {
   const start = Date.now()
-  try {
-    const response = await fetch(`${normalizeEndpoint(endpoint)}/api/models?limit=1`, {
-      headers: buildHeaders(token),
-    })
+  let lastFailure = '连接失败'
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        message: `HTTP ${response.status}`,
-        latencyMs: Date.now() - start,
+  try {
+    for (const probe of getEndpointProbePlan(endpoint, Boolean(token?.trim()))) {
+      try {
+        const response = await fetchWithTimeout(probe.url, {
+          headers: buildHeaders(token),
+        })
+
+        if (response.ok) {
+          return {
+            ok: true,
+            message: probe.successMessage,
+            latencyMs: Date.now() - start,
+          }
+        }
+
+        lastFailure = probe.failureMessage ?? `HTTP ${response.status}`
+        if (response.status !== 401 && response.status !== 403) {
+          const detail = await readErrorDetail(response)
+          if (detail) {
+            lastFailure = `${lastFailure} · ${detail}`
+          }
+        } else {
+          lastFailure = `${lastFailure} · HTTP ${response.status}`
+        }
+      } catch (error) {
+        lastFailure = error instanceof Error ? error.message : '连接失败'
       }
     }
-
-    return {
-      ok: true,
-      message: '连接成功',
-      latencyMs: Date.now() - start,
-    }
   } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : '连接失败',
-      latencyMs: Date.now() - start,
-    }
+    lastFailure = error instanceof Error ? error.message : '连接失败'
+  }
+
+  return {
+    ok: false,
+    message: lastFailure,
+    latencyMs: Date.now() - start,
   }
 }
 
