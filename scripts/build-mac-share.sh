@@ -28,7 +28,7 @@ prepare_release_dir() {
   mkdir -p "$RELEASE_DIR" "$VERSION_DIR"
   rm -rf "$RELEASE_DIR"/win-unpacked "$RELEASE_DIR"/mac-unpacked "$RELEASE_DIR"/mac-arm64
   rm -f "$RELEASE_DIR"/.DS_Store(N) "$VERSION_DIR"/.DS_Store(N)
-  rm -f "$RELEASE_DIR"/*mac*.zip(N) "$RELEASE_DIR"/*mac*.zip.blockmap(N) "$RELEASE_DIR"/*.txt(N) "$RELEASE_DIR"/latest-mac.yml(N)
+  rm -f "$RELEASE_DIR"/*mac*.zip(N) "$RELEASE_DIR"/*mac*.zip.blockmap(N) "$RELEASE_DIR"/*.txt(N) "$RELEASE_DIR"/latest-mac.yml(N) "$RELEASE_DIR"/builder-debug.yml(N)
   rm -f "$VERSION_DIR"/*mac*.zip(N) "$VERSION_DIR"/*.txt(N) "$VERSION_DIR"/latest-mac.yml(N)
 }
 
@@ -38,7 +38,7 @@ write_release_notes() {
 
 ## 中文说明
 
-本次发布把项目正式迁移到长期维护的 Electron 桌面架构，并整理了下载流程与发布方式。
+本次发布主要补强了 Windows 分享包的启动稳定性，并继续保持桌面下载流程的一致体验。
 
 ## 包含内容
 
@@ -49,12 +49,10 @@ write_release_notes() {
 
 ## 主要更新
 
-- 将应用迁移到 \`Electron + React + TypeScript\`
-- 新增仓库文件清单加载 搜索 分类与族群筛选
-- 新增推荐方案，方便快速选择模型权重或完整推理下载集
-- 新增实时队列遥测 历史恢复 失败重试和定位文件动作
-- 启动与打包流程统一到 \`package.json\` 和 \`scripts/\`
-- 移除旧 Tk 入口与根目录旧版 bat 脚本
+- 修复 Windows 便携版启动时的绝对路径初始化问题
+- 保持仓库文件清单加载 搜索 分类与族群筛选能力
+- 保持推荐方案 历史恢复 失败重试和定位文件动作
+- 启动与打包流程继续统一到 \`package.json\` 和 \`scripts/\`
 
 ## 打包与隐私
 
@@ -67,7 +65,7 @@ write_release_notes() {
 
 ## Summary
 
-This release officially moves the project onto a long-term Electron desktop architecture and streamlines the download and packaging flow.
+This release primarily hardens the Windows portable package and keeps the desktop download flow consistent.
 
 ## Included artifacts
 
@@ -78,12 +76,10 @@ This release officially moves the project onto a long-term Electron desktop arch
 
 ## Highlights
 
-- Migrated the app to \`Electron + React + TypeScript\`
-- Added repository manifest loading, search, category filtering, and family filtering
-- Added recommended presets for model weights and full runtime download sets
-- Added live queue telemetry, history restore, retry, and reveal-in-folder actions
-- Unified startup and packaging around \`package.json\` and \`scripts/\`
-- Removed the legacy Tk entrypoint and old root-level bat launch scripts
+- Fixed the Windows portable startup failure caused by non-absolute runtime path initialization
+- Kept repository manifest loading, search, category filtering, and family filtering
+- Kept recommended presets, history restore, retry, and reveal-in-folder actions
+- Continued to unify startup and packaging around \`package.json\` and \`scripts/\`
 
 ## Packaging and privacy
 
@@ -132,7 +128,7 @@ System Settings or right-click the app and choose "Open".
 EOF
 
 mv "$MAC_ZIP" "$VERSION_DIR/"
-rm -f "$RELEASE_DIR"/*mac*.zip.blockmap(N) "$RELEASE_DIR"/latest-mac.yml(N)
+rm -f "$RELEASE_DIR"/*mac*.zip.blockmap(N) "$RELEASE_DIR"/latest-mac.yml(N) "$RELEASE_DIR"/builder-debug.yml(N)
 rm -rf "$RELEASE_DIR"/mac-arm64
 write_release_notes
 

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { cpSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DownloadRunner } from './core/downloadRunner.js'
 import { listModelFiles, testEndpoint } from './core/hfApi.js'
@@ -11,7 +11,8 @@ import type { AppPaths, DownloadRequest, DownloadUpdate, HistoryEntry, Preferenc
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rendererDist = join(__dirname, '..', 'dist')
 const preloadPath = join(__dirname, '..', 'electron', 'preload.cjs')
-const PROGRAM_ROOT = join(homedir(), 'Program')
+const HOME_ROOT = resolveHomeRoot()
+const PROGRAM_ROOT = resolve(HOME_ROOT, 'Program')
 const HF_ROOT = join(PROGRAM_ROOT, 'HuggingFace')
 const HF_RUNTIME_ROOT = join(HF_ROOT, 'HF_Model_Downloader')
 const LEGACY_ELECTRON_USER_DATA_DIR = join(app.getPath('appData'), app.getName())
@@ -34,6 +35,27 @@ let latestUpdate: DownloadUpdate = {
   jobs: [],
   logs: [],
   activeRequest: null,
+}
+
+function resolveHomeRoot() {
+  const candidates = [
+    process.env.USERPROFILE,
+    process.env.HOME,
+    homedir(),
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate && isAbsolute(candidate)) {
+      return candidate
+    }
+  }
+
+  const electronHome = app.getPath('home')
+  if (electronHome && isAbsolute(electronHome)) {
+    return electronHome
+  }
+
+  return process.cwd()
 }
 
 function migrateDirectoryIfNeeded(sourceDir: string, targetDir: string) {
