@@ -13,17 +13,20 @@ const rendererDist = join(__dirname, '..', 'dist')
 const preloadPath = join(__dirname, '..', 'electron', 'preload.cjs')
 const HOME_ROOT = resolveHomeRoot()
 const PROGRAM_ROOT = resolve(HOME_ROOT, 'Program')
-const HF_ROOT = join(PROGRAM_ROOT, 'HuggingFace')
-const HF_RUNTIME_ROOT = join(HF_ROOT, 'HF_Model_Downloader')
+const PORTABLE_ROOT = dirname(process.execPath)
+const IS_WINDOWS_PORTABLE = process.platform === 'win32' && app.isPackaged
+const HF_ROOT = IS_WINDOWS_PORTABLE ? join(PORTABLE_ROOT, 'HF_Model_Downloader_Data') : join(PROGRAM_ROOT, 'HuggingFace')
+const HF_RUNTIME_ROOT = IS_WINDOWS_PORTABLE ? HF_ROOT : join(HF_ROOT, 'HF_Model_Downloader')
 const LEGACY_ELECTRON_USER_DATA_DIR = join(app.getPath('appData'), app.getName())
 const TARGET_ELECTRON_USER_DATA_DIR = join(HF_RUNTIME_ROOT, 'electron-user-data')
 const TARGET_ELECTRON_SESSION_DIR = join(HF_RUNTIME_ROOT, 'electron-session')
 const TARGET_ELECTRON_LOGS_DIR = join(HF_RUNTIME_ROOT, 'logs')
+const DEFAULT_DOWNLOADS_DIR = IS_WINDOWS_PORTABLE ? join(HF_RUNTIME_ROOT, 'Downloads') : join(PROGRAM_ROOT, 'Downloads')
 const defaultPreferences: Preferences = {
   repoId: '',
   endpoint: 'https://huggingface.co',
   token: '',
-  outputDir: join(PROGRAM_ROOT, 'Downloads'),
+  outputDir: DEFAULT_DOWNLOADS_DIR,
   concurrency: 3,
   createRepoFolder: true,
 }
@@ -82,7 +85,7 @@ function getAppPaths(): AppPaths {
   const cacheDir = join(appDataDir, 'cache')
   const historyFile = join(appDataDir, 'history.json')
   const preferencesFile = join(appDataDir, 'preferences.json')
-  const downloadsDir = join(PROGRAM_ROOT, 'Downloads')
+  const downloadsDir = DEFAULT_DOWNLOADS_DIR
   const legacyAppDataDir = join(LEGACY_ELECTRON_USER_DATA_DIR, 'hf-desktop')
   migrateLegacyData(legacyAppDataDir, appDataDir)
   mkdirSync(downloadsDir, { recursive: true })

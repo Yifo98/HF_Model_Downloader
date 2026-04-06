@@ -35,6 +35,7 @@ write_release_notes() {
 ## 主要更新
 
 - 修复 Windows 便携版启动时的绝对路径初始化问题
+- 将 Windows 便携版的缓存 日志 历史和默认下载目录改到程序同目录下的 \`HF_Model_Downloader_Data/\`
 - 保持仓库文件清单加载 搜索 分类与族群筛选能力
 - 保持推荐方案 历史恢复 失败重试和定位文件动作
 - 启动与打包流程继续统一到 \`package.json\` 和 \`scripts/\`
@@ -62,6 +63,7 @@ This release primarily hardens the Windows portable package and keeps the deskto
 ## Highlights
 
 - Fixed the Windows portable startup failure caused by non-absolute runtime path initialization
+- Moved the Windows portable cache, logs, history, and default download directory into \`HF_Model_Downloader_Data/\` next to the app
 - Kept repository manifest loading, search, category filtering, and family filtering
 - Kept recommended presets, history restore, retry, and reveal-in-folder actions
 - Continued to unify startup and packaging around \`package.json\` and \`scripts/\`
