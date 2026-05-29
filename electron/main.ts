@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DownloadRunner } from './core/downloadRunner.js'
-import { listModelFiles, testEndpoint } from './core/hfApi.js'
+import { listModelFiles, normalizeEndpoint, normalizeRepoId, testEndpoint } from './core/hfApi.js'
 import { readJsonFile, writeJsonFile } from './core/storage.js'
 import type { AppPaths, DownloadRequest, DownloadUpdate, HistoryEntry, Preferences, RuntimeStatus } from './core/types.js'
 
@@ -112,12 +112,27 @@ function migrateLegacyData(sourceDir: string, targetDir: string) {
 
 function loadPreferences() {
   const paths = getAppPaths()
-  return readJsonFile(paths.preferencesFile, defaultPreferences)
+  return sanitizePreferences(readJsonFile(paths.preferencesFile, defaultPreferences))
 }
 
 function savePreferences(value: Preferences) {
   const paths = getAppPaths()
-  writeJsonFile(paths.preferencesFile, value)
+  writeJsonFile(paths.preferencesFile, sanitizePreferences(value))
+}
+
+function sanitizePreferences(value: Partial<Preferences>): Preferences {
+  const endpoint = typeof value.endpoint === 'string' ? value.endpoint : defaultPreferences.endpoint
+  const outputDir = typeof value.outputDir === 'string' && value.outputDir.trim() ? value.outputDir : DEFAULT_DOWNLOADS_DIR
+  const concurrency = Number.isFinite(value.concurrency) ? Math.trunc(Number(value.concurrency)) : defaultPreferences.concurrency
+
+  return {
+    repoId: typeof value.repoId === 'string' ? value.repoId : '',
+    endpoint,
+    token: '',
+    outputDir,
+    concurrency: Math.max(1, Math.min(concurrency, 8)),
+    createRepoFolder: typeof value.createRepoFolder === 'boolean' ? value.createRepoFolder : true,
+  }
 }
 
 function loadHistory() {
@@ -175,26 +190,83 @@ function getRuntimeStatus(): RuntimeStatus {
 }
 
 async function createMainWindow() {
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL
+
   mainWindow = new BrowserWindow({
     width: 1480,
     height: 940,
     minWidth: 1220,
     minHeight: 800,
     title: 'HF Model Downloader',
-    backgroundColor: '#f4efe4',
+    backgroundColor: '#f5f7f5',
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
 
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL
+  configureWindowSecurity(mainWindow, Boolean(devServerUrl))
+
   if (devServerUrl) {
     await mainWindow.loadURL(devServerUrl)
   } else {
     await mainWindow.loadFile(join(rendererDist, 'index.html'))
   }
+}
+
+function isHttpUrl(value: string) {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+async function openExternalHttpUrl(targetUrl: string) {
+  if (!isHttpUrl(targetUrl)) {
+    throw new Error('只允许打开 http(s) 外部链接。')
+  }
+
+  await shell.openExternal(targetUrl)
+}
+
+function configureWindowSecurity(window: BrowserWindow, isDevServer: boolean) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttpUrl(url)) void openExternalHttpUrl(url)
+    return { action: 'deny' }
+  })
+
+  window.webContents.on('will-navigate', (event, url) => {
+    const currentUrl = window.webContents.getURL()
+    if (url === currentUrl) return
+    event.preventDefault()
+    if (isHttpUrl(url)) void openExternalHttpUrl(url)
+  })
+
+  if (isDevServer) return
+
+  window.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: file:",
+            "font-src 'self' data:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "frame-ancestors 'none'",
+          ].join('; '),
+        ],
+      },
+    })
+  })
 }
 
 function registerIpc() {
@@ -219,20 +291,20 @@ function registerIpc() {
     return result.canceled ? null : result.filePaths[0]
   })
   ipcMain.handle('shell:openPath', async (_event, targetPath: string) => {
-    if (!targetPath) return
+    if (!targetPath || !isAbsolute(targetPath)) return
     await shell.openPath(targetPath)
   })
   ipcMain.handle('shell:showItemInFolder', async (_event, targetPath: string) => {
-    if (!targetPath) return
+    if (!targetPath || !isAbsolute(targetPath)) return
     shell.showItemInFolder(targetPath)
   })
   ipcMain.handle('shell:openExternal', async (_event, targetUrl: string) => {
     if (!targetUrl) return
-    await shell.openExternal(targetUrl)
+    await openExternalHttpUrl(targetUrl)
   })
-  ipcMain.handle('hf:test-endpoint', async (_event, endpoint: string, token: string | null) => testEndpoint(endpoint, token))
+  ipcMain.handle('hf:test-endpoint', async (_event, endpoint: string, token: string | null) => testEndpoint(normalizeEndpoint(endpoint), token))
   ipcMain.handle('hf:list-files', async (_event, payload: { endpoint: string; repoId: string; token: string | null }) => {
-    return listModelFiles(payload.endpoint, payload.repoId, payload.token)
+    return listModelFiles(normalizeEndpoint(payload.endpoint), normalizeRepoId(payload.repoId), payload.token)
   })
   ipcMain.handle('hf:get-update', () => latestUpdate)
   ipcMain.handle('hf:cancel-download', () => {
@@ -243,8 +315,14 @@ function registerIpc() {
       throw new Error('当前已有下载任务在运行。')
     }
 
-    const manifest = await listModelFiles(request.endpoint, request.repoId, request.token)
-    const selected = manifest.filter((item) => request.selectedPaths.includes(item.path))
+    const normalizedRequest = {
+      ...request,
+      endpoint: normalizeEndpoint(request.endpoint),
+      repoId: normalizeRepoId(request.repoId),
+      concurrency: Math.max(1, Math.min(Math.trunc(request.concurrency || 1), 8)),
+    }
+    const manifest = await listModelFiles(normalizedRequest.endpoint, normalizedRequest.repoId, normalizedRequest.token)
+    const selected = manifest.filter((item) => normalizedRequest.selectedPaths.includes(item.path))
     if (selected.length === 0) {
       throw new Error('没有可下载的文件。')
     }
@@ -254,10 +332,10 @@ function registerIpc() {
     const history = loadHistory()
     const entry: HistoryEntry = {
       sessionId,
-      repoId: request.repoId,
-      endpoint: request.endpoint,
-      outputDir: request.outputDir,
-      selectedPaths: request.selectedPaths,
+      repoId: normalizedRequest.repoId,
+      endpoint: normalizedRequest.endpoint,
+      outputDir: normalizedRequest.outputDir,
+      selectedPaths: normalizedRequest.selectedPaths,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       status: 'running',
@@ -269,7 +347,7 @@ function registerIpc() {
     saveHistory(history)
     sendHistory(history)
 
-    runner = new DownloadRunner(request, selected, {
+    runner = new DownloadRunner(normalizedRequest, selected, {
       onUpdate: (payload) => {
         sendUpdate(payload)
       },

@@ -45,7 +45,7 @@ export default function App() {
   const [endpointStatus, setEndpointStatus] = useState<EndpointTestResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [loadingManifest, setLoadingManifest] = useState(false)
-  const [message, setMessage] = useState('先填一个仓库，再让师姐替你把文件清单拽下来。')
+  const [message, setMessage] = useState('填写仓库后加载文件清单。')
   const [update, setUpdate] = useState<DownloadUpdate>(EMPTY_UPDATE)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | DownloadStatus>('all')
@@ -130,6 +130,7 @@ export default function App() {
   const families = useMemo(() => ['all', ...new Set(manifest.map((item) => item.family))], [manifest])
   const totalSelectedBytes = useMemo(() => manifest.filter((item) => selectedPaths.includes(item.path)).reduce((sum, item) => sum + (item.size ?? 0), 0), [manifest, selectedPaths])
   const selectedVisibleCount = useMemo(() => visibleManifest.filter((item) => selectedPaths.includes(item.path)).length, [selectedPaths, visibleManifest])
+  const canStartDownload = hasManifest && repoLooksValid && Boolean(outputDir.trim()) && selectedPaths.length > 0 && update.queue.running === 0
   const historySummary = useMemo(() => ({
     total: history.length,
     success: history.filter((item) => item.status === 'success').length,
@@ -233,9 +234,18 @@ export default function App() {
   async function handleTestEndpoint() {
     setBusy(true)
     setEndpointStatus(null)
-    const result = await window.appApi.testEndpoint(activeEndpoint, token || null)
-    setEndpointStatus(result)
-    setBusy(false)
+    try {
+      const result = await window.appApi.testEndpoint(activeEndpoint, token || null)
+      setEndpointStatus(result)
+    } catch (error) {
+      setEndpointStatus({
+        ok: false,
+        message: error instanceof Error ? error.message : '连接测试失败。',
+        latencyMs: null,
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
   function applyHistoryEntry(entry: HistoryEntry) {
@@ -301,6 +311,14 @@ export default function App() {
   }
 
   async function handleStartDownload() {
+    if (!repoLooksValid) {
+      setMessage('仓库名需要写成 owner/repo。')
+      return
+    }
+    if (!outputDir.trim()) {
+      setMessage('请先选择下载目录。')
+      return
+    }
     if (!selectedPaths.length) {
       setMessage('至少勾一个文件，不然下载器也不知道你想搬什么。')
       return
@@ -401,17 +419,17 @@ export default function App() {
             <img src={logoUrl} alt="HF Model Downloader" className="hero__logo" />
             <div>
               <p className="eyebrow">HF MODEL DOWNLOADER</p>
-              <h1>更顺手地管理 Hugging Face 模型下载</h1>
-              <p>读取仓库清单 筛选需要的文件 批量下载并保留历史记录与失败上下文</p>
+              <h1>模型文件下载工作台</h1>
+              <p>{paths ? `默认下载：${paths.downloadsDir}` : '正在读取本地运行目录'}</p>
             </div>
           </div>
           <div className="hero__meta">
             <div className="theme-switcher">
               <span>主题</span>
               <div className="segmented">
-                <button type="button" className={theme === 'midnight' ? 'segmented__item active' : 'segmented__item'} onClick={() => setTheme('midnight')}>深夜</button>
-                <button type="button" className={theme === 'ember' ? 'segmented__item active' : 'segmented__item'} onClick={() => setTheme('ember')}>余烬</button>
-                <button type="button" className={theme === 'aurora' ? 'segmented__item active' : 'segmented__item'} onClick={() => setTheme('aurora')}>极光</button>
+                <button type="button" className={theme === 'midnight' ? 'segmented__item active' : 'segmented__item'} onClick={() => setTheme('midnight')}>浅色</button>
+                <button type="button" className={theme === 'ember' ? 'segmented__item active' : 'segmented__item'} onClick={() => setTheme('ember')}>暖色</button>
+                <button type="button" className={theme === 'aurora' ? 'segmented__item active' : 'segmented__item'} onClick={() => setTheme('aurora')}>青色</button>
               </div>
             </div>
             <button type="button" className="ghost-button" onClick={() => void window.appApi.openExternal('https://huggingface.co/models')}>打开 HF Models</button>
@@ -442,7 +460,7 @@ export default function App() {
           <div className="panel__header">
             <div>
               <h3>仓库配置</h3>
-              <p>把配置填完后直接拉清单，下面就能继续筛选和确认，不用再手动切页。</p>
+              <p>{repoLooksValid ? repoId : 'owner/repo'}</p>
             </div>
           </div>
           <div className="form-grid">
@@ -481,6 +499,7 @@ export default function App() {
             <label>
               Token
               <input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="可选，私有仓库或限流场景再填" />
+              <span className="field-hint">仅当前会话使用，不写入本地偏好文件。</span>
             </label>
             <label>
               并发数
@@ -538,7 +557,7 @@ export default function App() {
             <section className="panel quick-actions-panel">
               <div>
                 <h3>推荐方案</h3>
-                <p>模型权重是精简版 推荐下载会把权重加上配置与 tokenizer 一起带走 更适合直接使用</p>
+                <p>{hasManifest ? `基于当前 ${visibleManifest.length} 个可见文件` : '等待文件清单'}</p>
               </div>
               <div className="quick-actions">
                 {quickSelectionOptions.map((option) => {
@@ -577,7 +596,7 @@ export default function App() {
             <div className="panel__header">
               <div>
                 <h3>下载操作台</h3>
-                <p>把关键摘要和动作收成一块，操作会顺得多。</p>
+                <p>{canStartDownload ? '可以开始' : '等待确认'}</p>
               </div>
             </div>
             <div className="action-rail__stats">
@@ -599,7 +618,7 @@ export default function App() {
               </div>
             </div>
             <div className="panel__actions">
-              <button type="button" className="primary-button" onClick={handleStartDownload} disabled={busy || update.queue.running > 0 || !hasManifest}>{update.queue.running > 0 ? '任务运行中' : '开始下载'}</button>
+              <button type="button" className="primary-button" onClick={handleStartDownload} disabled={busy || !canStartDownload}>{update.queue.running > 0 ? '任务运行中' : '开始下载'}</button>
               <button type="button" className="ghost-button" onClick={() => void window.appApi.cancelDownload()} disabled={update.queue.running === 0}>取消任务</button>
               <button type="button" className="ghost-button" onClick={() => openDownloadFolder(outputDir)} disabled={!outputDir}>打开下载目录</button>
             </div>

@@ -4,13 +4,62 @@ import type { EndpointTestResult, FileManifestItem } from './types.js'
 
 const OFFICIAL_ENDPOINT = 'https://huggingface.co'
 const REQUEST_TIMEOUT_MS = 12000
+const REPO_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/
 
 function trimSlash(value: string) {
   return value.trim().replace(/\/+$/, '')
 }
 
 export function normalizeEndpoint(value: string) {
-  return trimSlash(value) || OFFICIAL_ENDPOINT
+  const raw = trimSlash(value) || OFFICIAL_ENDPOINT
+  let parsed: URL
+
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new Error('Endpoint 必须是有效的 http(s) 地址。')
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Endpoint 只允许使用 http 或 https。')
+  }
+
+  parsed.hash = ''
+  parsed.search = ''
+  parsed.pathname = trimSlash(parsed.pathname)
+  return parsed.toString().replace(/\/+$/, '')
+}
+
+export function normalizeRepoId(value: string) {
+  const parts = value.trim().split('/')
+  if (parts.length !== 2 || parts.some((part) => part.length === 0)) {
+    throw new Error('仓库名格式不对，应该像 `owner/repo`。')
+  }
+
+  for (const part of parts) {
+    if (part === '.' || part === '..' || !REPO_SEGMENT_PATTERN.test(part)) {
+      throw new Error('仓库名只能包含字母、数字、点、下划线和短横线。')
+    }
+  }
+
+  return parts.join('/')
+}
+
+export function getSafeRelativePathSegments(filePath: string) {
+  if (!filePath.trim() || filePath.includes('\0') || filePath.includes('\\')) {
+    throw new Error('文件路径不合法。')
+  }
+
+  const segments = filePath.split('/')
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error('文件路径不能包含空段或上级目录。')
+  }
+
+  return segments
+}
+
+function normalizeManifestPath(filePath: string) {
+  return getSafeRelativePathSegments(filePath).join('/')
 }
 
 type EndpointProbe = {
@@ -47,10 +96,9 @@ export function getEndpointProbePlan(endpoint: string, hasToken: boolean) {
 }
 
 function encodeRepoId(repoId: string) {
-  return repoId
+  return normalizeRepoId(repoId)
     .split('/')
     .map((segment) => encodeURIComponent(segment.trim()))
-    .filter(Boolean)
     .join('/')
 }
 
@@ -157,8 +205,8 @@ function classifyCategory(path: string) {
 
 export function buildDownloadUrl(endpoint: string, repoId: string, filePath: string) {
   const normalized = normalizeEndpoint(endpoint)
-  const encodedSegments = filePath.split('/').map((segment) => encodeURIComponent(segment)).join('/')
-  return `${normalized}/${repoId}/resolve/main/${encodedSegments}?download=1`
+  const encodedPath = getSafeRelativePathSegments(filePath).map((segment) => encodeURIComponent(segment)).join('/')
+  return `${normalized}/${encodeRepoId(repoId)}/resolve/main/${encodedPath}?download=1`
 }
 
 function buildApiErrorMessage(prefix: string, status: number, detail?: string) {
@@ -168,17 +216,24 @@ function buildApiErrorMessage(prefix: string, status: number, detail?: string) {
 
 function toManifestItems(payload: Array<Record<string, unknown>>) {
   return payload
-    .map((entry) => {
-      const path = typeof entry.path === 'string' ? entry.path : ''
+    .flatMap((entry) => {
+      const rawPath = typeof entry.path === 'string' ? entry.path : ''
+      let path = ''
+      try {
+        path = normalizeManifestPath(rawPath)
+      } catch {
+        return []
+      }
+
       const type = entry.type === 'directory' ? 'directory' : 'file'
       const size = typeof entry.size === 'number' ? entry.size : null
-      return {
+      return [{
         path,
         size,
         type,
         category: classifyCategory(path),
         family: classifyFamily(path),
-      } satisfies FileManifestItem
+      } satisfies FileManifestItem]
     })
     .filter((entry) => entry.path && entry.type === 'file')
 }
@@ -205,15 +260,22 @@ async function listSiblingFiles(endpoint: string, repoId: string, token: string 
 
   const payload = JSON.parse(response.body) as { siblings?: Array<{ rfilename?: string; size?: number }> }
   const rows = (payload.siblings ?? [])
-    .map((item) => {
-      const path = typeof item.rfilename === 'string' ? item.rfilename : ''
-      return {
+    .flatMap((item) => {
+      const rawPath = typeof item.rfilename === 'string' ? item.rfilename : ''
+      let path = ''
+      try {
+        path = normalizeManifestPath(rawPath)
+      } catch {
+        return []
+      }
+
+      return [{
         path,
         size: typeof item.size === 'number' ? item.size : null,
         type: 'file',
         category: classifyCategory(path),
         family: classifyFamily(path),
-      } satisfies FileManifestItem
+      } satisfies FileManifestItem]
     })
     .filter((entry) => entry.path)
 
@@ -262,14 +324,12 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
 }
 
 export async function listModelFiles(endpoint: string, repoId: string, token: string | null): Promise<FileManifestItem[]> {
-  const normalizedRepoId = repoId.trim()
-  if (!normalizedRepoId.includes('/')) {
-    throw new Error('仓库名格式不对，应该像 `owner/repo`。')
-  }
+  const normalizedRepoId = normalizeRepoId(repoId)
+  const normalizedEndpoint = normalizeEndpoint(endpoint)
 
-  let rows = await listTreeFiles(endpoint, normalizedRepoId, token)
+  let rows = await listTreeFiles(normalizedEndpoint, normalizedRepoId, token)
   if (rows.length === 0) {
-    rows = await listSiblingFiles(endpoint, normalizedRepoId, token)
+    rows = await listSiblingFiles(normalizedEndpoint, normalizedRepoId, token)
   }
   if (rows.length === 0) {
     throw new Error('文件清单为空。这个仓库可能需要登录权限，或者当前 endpoint 不支持列目录。')

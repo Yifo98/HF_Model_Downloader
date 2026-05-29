@@ -1,9 +1,9 @@
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
   min-height: 100vh;
-  padding: 24px;
+  padding: 20px;
   align-items: start;
 }
 
@@ -15,15 +15,10 @@
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: 24px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, white 3%), color-mix(in srgb, var(--panel) 98%, black 6%)),
-    var(--panel);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 24px 70px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(20px);
-  padding: 20px;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+  padding: 16px;
 }
 
 .panel h3,
@@ -37,7 +32,7 @@
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .panel__actions {
@@ -60,7 +55,16 @@
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  align-items: flex-start;
+  align-items: center;
+}
+
+.hero.panel {
+  padding: 6px 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .hero__copy {
@@ -70,16 +74,16 @@
 }
 
 .hero__logo {
-  width: 96px;
-  height: 96px;
-  border-radius: 28px;
+  width: 58px;
+  height: 58px;
+  border-radius: 8px;
   flex: 0 0 auto;
-  box-shadow: 0 16px 36px rgba(111, 81, 45, 0.16);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
 }
 
 .hero__copy h1 {
-  margin: 10px 0 8px;
-  font-size: 2rem;
+  margin: 4px 0 4px;
+  font-size: 1.45rem;
   line-height: 1.15;
 }
 
@@ -90,16 +94,19 @@
 }
 
 .eyebrow {
-  letter-spacing: 0.18em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
 }
 
 .hero__meta {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .theme-switcher {
@@ -117,9 +124,9 @@
 
 .segmented {
   display: inline-flex;
-  gap: 8px;
-  padding: 6px;
-  border-radius: 999px;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
 }
@@ -129,18 +136,18 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: 7px 11px;
+  border-radius: 6px;
 }
 
 .segmented__item.active {
-  color: #07101b;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #08100f;
+  background: var(--accent);
 }
 
 .history-toggle {
-  border-radius: 16px;
-  padding: 11px 16px;
+  border-radius: 8px;
+  padding: 10px 14px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
@@ -154,7 +161,7 @@
 .history-toggle strong {
   min-width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -162,8 +169,8 @@
 }
 
 .history-toggle--active {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #07101b;
+  background: var(--accent);
+  color: #08100f;
 }
 
 .history-toggle--active strong {
@@ -188,14 +195,14 @@
 input,
 select {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 8px;
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-strong);
 }
 
 select {
-  color-scheme: dark;
+  color-scheme: inherit;
   background-color: var(--panel-strong);
 }
 
@@ -207,8 +214,8 @@ select optgroup {
 
 select option:checked,
 select option:hover {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #07101b;
+  background: var(--accent);
+  color: #08100f;
 }
 
 .input-with-button {
@@ -226,14 +233,15 @@ select option:hover {
 
 .primary-button,
 .ghost-button {
-  border-radius: 14px;
+  border-radius: 8px;
   padding: 11px 16px;
   border: 1px solid transparent;
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #07101b;
+  background: var(--accent);
+  color: #08100f;
+  font-weight: 700;
 }
 
 .ghost-button {
@@ -248,7 +256,13 @@ select option:hover {
 }
 
 .status-line--ok {
-  color: #70d7a7;
+  color: var(--accent);
+}
+
+.field-hint {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 400;
 }
 
 .toolbar-panel {
@@ -273,14 +287,14 @@ select option:hover {
 
 .table-wrap {
   overflow: auto;
-  border-radius: 18px;
+  border-radius: 8px;
   border: 1px solid var(--line);
 }
 
 .storage-note {
   margin-top: 14px;
   padding: 12px 14px;
-  border-radius: 16px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   display: grid;
   gap: 4px;
@@ -304,7 +318,7 @@ select option:hover {
 }
 
 .preflight-card {
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 12px 14px;
   display: grid;
   gap: 6px;
@@ -357,7 +371,7 @@ select option:hover {
 }
 
 .runtime-pill {
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -376,13 +390,35 @@ select option:hover {
 .job-card,
 .history-card {
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   padding: 14px;
   background: rgba(255, 255, 255, 0.04);
 }
 
 .queue-card--success {
-  background: linear-gradient(135deg, rgba(103, 222, 170, 0.18), rgba(255, 255, 255, 0.04));
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: var(--success-bg);
+}
+
+.queue-card__topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.progress-track__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
 }
 
 .queue-card__hint {
@@ -402,7 +438,7 @@ select option:hover {
 
 .quick-option {
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   padding: 16px;
   display: grid;
   gap: 10px;
@@ -412,9 +448,9 @@ select option:hover {
 }
 
 .quick-option--active {
-  border-color: rgba(116, 215, 255, 0.36);
-  background: linear-gradient(135deg, rgba(255, 176, 92, 0.16), rgba(116, 215, 255, 0.12));
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.18);
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .quick-option__header,
@@ -465,8 +501,7 @@ select option:hover {
 .history-panel {
   display: grid;
   gap: 16px;
-  border-color: rgba(116, 215, 255, 0.14);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .history-summary {
@@ -489,7 +524,7 @@ select option:hover {
 
 .history-summary__item {
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.04);
   display: grid;
@@ -520,11 +555,11 @@ select option:hover {
 }
 
 .history-card__error {
-  color: #ff8b8b;
+  color: #ff9a9a;
 }
 
 .history-badge {
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 5px 10px;
   font-size: 0.82rem;
   font-weight: 700;
@@ -532,18 +567,18 @@ select option:hover {
 
 .history-badge--success {
   background: rgba(103, 222, 170, 0.2);
-  color: #96f1c2;
+  color: #a3f3c9;
 }
 
 .history-badge--running {
   background: rgba(255, 176, 92, 0.18);
-  color: #ffd39b;
+  color: #ffd69f;
 }
 
 .history-badge--error,
 .history-badge--cancelled {
   background: rgba(255, 113, 113, 0.18);
-  color: #ffb7b7;
+  color: #ffc0c0;
 }
 
 .history-card--success {
@@ -591,7 +626,7 @@ select option:hover {
 
 .action-stat {
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 12px 14px;
   display: grid;
   gap: 4px;
@@ -599,8 +634,8 @@ select option:hover {
 }
 
 .log-box {
-  border-radius: 18px;
-  background: #0d131e;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
   color: #dce7f4;
   padding: 14px;
 }
@@ -655,7 +690,7 @@ select option:hover {
   }
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1280px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -673,12 +708,6 @@ select option:hover {
 
   .hero__copy {
     align-items: flex-start;
-  }
-
-  .form-grid,
-  .confirm-grid,
-  .toolbar-panel__controls {
-    grid-template-columns: 1fr;
   }
 
   .preflight-grid {

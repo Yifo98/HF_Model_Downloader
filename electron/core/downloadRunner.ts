@@ -1,8 +1,8 @@
 import { once } from 'node:events'
 import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs'
 import { rename } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { buildDownloadUrl } from './hfApi.js'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { buildDownloadUrl, getSafeRelativePathSegments, normalizeEndpoint, normalizeRepoId } from './hfApi.js'
 import type { DownloadJobSnapshot, DownloadRequest, DownloadUpdate, FileManifestItem, QueueSnapshot } from './types.js'
 
 export type DownloadRunnerCallbacks = {
@@ -23,12 +23,12 @@ function buildQueueSnapshot(jobs: DownloadJobSnapshot[], concurrency: number): Q
 }
 
 function createJobSnapshots(request: DownloadRequest, manifest: FileManifestItem[]) {
+  const outputRoot = resolveOutputRoot(request)
+
   return manifest.map((item, index) => {
-    const outputPath = join(
-      request.outputDir,
-      request.createRepoFolder ? request.repoId.split('/').at(-1) ?? request.repoId : '',
-      item.path,
-    )
+    const outputPath = resolve(outputRoot, ...getSafeRelativePathSegments(item.path))
+    assertInsideDirectory(outputRoot, outputPath)
+
     return {
       jobId: 'job-' + String(index + 1),
       path: item.path,
@@ -44,18 +44,53 @@ function createJobSnapshots(request: DownloadRequest, manifest: FileManifestItem
   })
 }
 
+function resolveOutputRoot(request: DownloadRequest) {
+  const outputDir = request.outputDir.trim()
+  if (!outputDir || !isAbsolute(outputDir)) {
+    throw new Error('下载目录必须是绝对路径。')
+  }
+
+  const normalizedRepoId = normalizeRepoId(request.repoId)
+  const repoFolder = request.createRepoFolder ? normalizedRepoId.split('/').at(-1) ?? '' : ''
+  const root = repoFolder ? resolve(outputDir, repoFolder) : resolve(outputDir)
+  assertInsideDirectory(resolve(outputDir), root)
+  return root
+}
+
+function assertInsideDirectory(rootDir: string, targetPath: string) {
+  const relativePath = relative(rootDir, targetPath)
+  if (relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))) return
+  throw new Error('拒绝写入下载目录之外的路径。')
+}
+
+function normalizeDownloadRequest(request: DownloadRequest): DownloadRequest {
+  const outputDir = request.outputDir.trim()
+  const concurrency = Number.isFinite(request.concurrency) ? Math.trunc(request.concurrency) : 1
+
+  return {
+    ...request,
+    repoId: normalizeRepoId(request.repoId),
+    endpoint: normalizeEndpoint(request.endpoint),
+    outputDir,
+    concurrency: Math.max(1, Math.min(concurrency, 8)),
+    selectedPaths: request.selectedPaths.map((path) => getSafeRelativePathSegments(path).join('/')),
+  }
+}
+
 export class DownloadRunner {
   private readonly controller = new AbortController()
   private cancelled = false
   private readonly jobs: DownloadJobSnapshot[]
   private readonly logs: string[] = []
+  private readonly request: DownloadRequest
 
   constructor(
-    private readonly request: DownloadRequest,
+    request: DownloadRequest,
     manifest: FileManifestItem[],
     private readonly callbacks: DownloadRunnerCallbacks,
   ) {
-    this.jobs = createJobSnapshots(request, manifest)
+    this.request = normalizeDownloadRequest(request)
+    this.jobs = createJobSnapshots(this.request, manifest)
   }
 
   cancel() {

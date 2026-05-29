@@ -1,10 +1,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildDownloadUrl, getEndpointProbePlan, normalizeEndpoint } from './hfApi.js'
+import { buildDownloadUrl, getEndpointProbePlan, getSafeRelativePathSegments, normalizeEndpoint, normalizeRepoId } from './hfApi.js'
 
 test('normalizeEndpoint trims slash and falls back to official', () => {
   assert.equal(normalizeEndpoint('https://hf-mirror.com///'), 'https://hf-mirror.com')
   assert.equal(normalizeEndpoint('   '), 'https://huggingface.co')
+})
+
+test('normalizeEndpoint rejects non-http protocols', () => {
+  assert.throws(() => normalizeEndpoint('file:///tmp/model'), /http/)
+  assert.throws(() => normalizeEndpoint('javascript:alert(1)'), /http/)
+})
+
+test('normalizeRepoId accepts owner and repo path only', () => {
+  assert.equal(normalizeRepoId(' black-forest-labs/FLUX.1-dev '), 'black-forest-labs/FLUX.1-dev')
+  assert.throws(() => normalizeRepoId('owner/repo/extra'), /owner\/repo/)
+  assert.throws(() => normalizeRepoId('../repo'), /仓库名/)
+})
+
+test('safe relative file paths reject traversal and backslashes', () => {
+  assert.deepEqual(getSafeRelativePathSegments('folder/model.safetensors'), ['folder', 'model.safetensors'])
+  assert.throws(() => getSafeRelativePathSegments('../secret'), /上级目录/)
+  assert.throws(() => getSafeRelativePathSegments('folder\\secret'), /不合法/)
 })
 
 test('buildDownloadUrl encodes nested file names', () => {

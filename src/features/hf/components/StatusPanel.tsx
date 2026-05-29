@@ -10,14 +10,29 @@ type StatusPanelProps = {
 
 export function StatusPanel({ runtime, update, currentOutputDir, onOpenOutputDir, onRevealFile }: StatusPanelProps) {
   const latestSuccessfulJob = [...update.jobs].reverse().find((job) => job.status === 'success')
+  const totalBytes = update.jobs.reduce((sum, job) => sum + (job.totalBytes ?? 0), 0)
+  const downloadedBytes = update.jobs.reduce((sum, job) => sum + job.downloadedBytes, 0)
+  const overallPercent = totalBytes > 0 ? Math.min(100, (downloadedBytes / totalBytes) * 100) : 0
+  const visibleJobs = [...update.jobs]
+    .sort((left, right) => {
+      const priority: Record<DownloadStatus, number> = {
+        running: 0,
+        error: 1,
+        idle: 2,
+        cancelled: 3,
+        success: 4,
+      }
+      return priority[left.status] - priority[right.status]
+    })
+    .slice(0, 8)
 
   return (
     <aside className="status-column">
       <section className="panel panel--sticky">
         <div className="panel__header">
           <div>
-            <h3>运行态</h3>
-            <p>这里集中看连接状态 目录信息 队列快照和最近任务 不用来回翻页面</p>
+            <h3>状态</h3>
+            <p>{update.activeRequest ? update.activeRequest.repoId : '空闲'}</p>
           </div>
         </div>
         <div className="runtime-grid">
@@ -39,15 +54,21 @@ export function StatusPanel({ runtime, update, currentOutputDir, onOpenOutputDir
           </div>
         ) : null}
         <div className="queue-card">
-          <h4>队列快照</h4>
+          <div className="queue-card__topline">
+            <h4>队列</h4>
+            <strong>{formatPercent(totalBytes > 0 ? overallPercent : null)}</strong>
+          </div>
+          <div className="progress-track" aria-label="下载总进度">
+            <div className="progress-track__bar" style={{ width: `${overallPercent}%` }} />
+          </div>
           <p>总数 {update.queue.total} · 运行中 {update.queue.running} · 完成 {update.queue.completed}</p>
           <p>失败 {update.queue.failed} · 已取消 {update.queue.cancelled} · 并发 {update.queue.concurrency}</p>
-          {update.activeRequest ? <p className="queue-card__hint">当前仓库：{update.activeRequest.repoId}</p> : <p className="queue-card__hint">还没有活跃任务。</p>}
+          {totalBytes > 0 ? <p className="queue-card__hint">{formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}</p> : null}
         </div>
         <div className="job-list">
-          <h4>任务遥测</h4>
+          <h4>任务</h4>
           {update.jobs.length === 0 ? <p className="empty-state">等待任务启动。</p> : null}
-          {update.jobs.slice(0, 6).map((job) => (
+          {visibleJobs.map((job) => (
             <div key={job.jobId} className="job-card">
               <strong>{job.path}</strong>
               <span>{job.status} · {formatPercent(job.percent)}</span>
