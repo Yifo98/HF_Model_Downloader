@@ -96,7 +96,7 @@ async function verifyStage(stageDirectory) {
 }
 
 function isDownloadArtifact(fileName) {
-  return /^HF-Model-Downloader-\d+\.\d+\.\d+-.+\.(?:exe|zip)$/i.test(fileName)
+  return /^HF-Model-Downloader-\d+\.\d+\.\d+-.+\.zip$/i.test(fileName)
 }
 
 async function digest(filePath) {

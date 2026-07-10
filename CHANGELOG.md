@@ -2,6 +2,24 @@
 
 本项目使用 `package.json` 作为版本号唯一来源。完整发行说明、首次运行限制和资产名称见 `docs/releases/`。
 
+## 5.6.2 · 2026-07-10
+
+### Changed
+
+- Sol 源图外圈改为真实透明像素，并重新生成 macOS、Windows 与应用内平台图标。
+- GitHub README 从孤立图标改为可重复渲染的 1600 × 640 品牌卡片。
+- Windows 交付改为单一目录式便携 ZIP；不再生成或发布安装器、NSIS portable wrapper 或顶层 EXE。
+- Windows ZIP 使用根目录启动器加载完整的 `win-unpacked` Electron 运行目录。
+- macOS 数据落点保持现状；Windows 应用数据、下载、缓存、session、日志、崩溃记录与临时目录统一收进解压项目根。
+- Windows 目录式便携版不再自动读取或改写用户配置盘上的旧 Electron 数据。
+
+### Security
+
+- `HF_MODEL_DOWNLOADER_PORTABLE_ROOT` 只接受绝对、已存在、自身非符号链接、含便携标记且包含当前 EXE 的目录。
+- 启动器在 Electron 原生启动前把 APPDATA、LOCALAPPDATA、TEMP、TMP、Chromium userData 与缓存切换到项目目录。
+- 更新目录复用真实路径包含性检查，拒绝 junction / reparse point 把更新包写到项目外。
+- 打包脚本校验 ZIP 根结构、内部 Electron 依赖、隐私排除项和 SHA-256，并拒绝单独的 Windows 发布 EXE。
+
 ## 5.6.1 · 2026-07-10
 
 ### Added
