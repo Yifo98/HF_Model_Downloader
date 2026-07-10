@@ -5,54 +5,66 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$Package = Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
+$Version = $Package.version
+$ReleaseRoot = Join-Path $ProjectRoot "release"
+$VersionDirectory = Join-Path $ReleaseRoot $Version
+$BuildRoot = Join-Path $ReleaseRoot ".build\$Version\windows-x64"
+$StageRoot = Join-Path $ReleaseRoot ".stage\$Version\windows-x64"
+$ExeName = "HF-Model-Downloader-$Version-windows-x64-portable.exe"
+$ZipName = "HF-Model-Downloader-$Version-windows-x64-portable.zip"
+$ExePath = Join-Path $VersionDirectory $ExeName
+$ZipPath = Join-Path $VersionDirectory $ZipName
+
 Push-Location $ProjectRoot
 try {
     if (-not (Test-Path (Join-Path $ProjectRoot "node_modules"))) {
-        npm install | Out-Host
+        Write-Host "Installing locked development dependencies with npm ci..."
+        npm ci | Out-Host
     }
 
+    New-Item -ItemType Directory -Path $VersionDirectory -Force | Out-Null
+    Remove-Item -LiteralPath $BuildRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $ExePath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $StageRoot -Force | Out-Null
+
     npm run build | Out-Host
-    npx electron-builder --win portable zip --x64 | Out-Host
+    $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+    npx electron-builder --win portable --x64 "--config.directories.output=$BuildRoot" | Out-Host
+
+    $BuiltExe = Get-ChildItem -LiteralPath $BuildRoot -Filter *.exe -File |
+        Where-Object { $_.Length -gt 20MB } |
+        Select-Object -First 1
+    if (-not $BuiltExe) {
+        throw "Windows portable executable was not created as expected."
+    }
+
+    Copy-Item -LiteralPath $BuiltExe.FullName -Destination $ExePath
+    Copy-Item -LiteralPath $ExePath -Destination (Join-Path $StageRoot $ExeName)
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot "docs\releases\README-Windows.txt") -Destination (Join-Path $StageRoot "README-Windows.txt")
+
+    node scripts/release-tool.mjs verify-stage $StageRoot | Out-Host
+    Compress-Archive -Path (Join-Path $StageRoot "*") -DestinationPath $ZipPath -CompressionLevel Optimal
+
+    node scripts/release-tool.mjs finalize $VersionDirectory | Out-Host
+    node scripts/release-tool.mjs verify-checksums $VersionDirectory | Out-Host
 }
 finally {
     Pop-Location
-}
-
-$releaseDir = Join-Path $ProjectRoot "release"
-$portableExe = Get-ChildItem -LiteralPath $releaseDir -Filter *.exe | Select-Object -First 1
-$zipArtifact = Get-ChildItem -LiteralPath $releaseDir -Filter *win*.zip | Select-Object -First 1
-
-if (-not $portableExe -or -not $zipArtifact) {
-    throw "Windows build artifacts were not created as expected."
-}
-
-$privacyPattern = 'cookie|history|config\.json|user[- ]data|electron-session|electron-user-data|token|api[_-]?key'
-$tempInspectDir = Join-Path $releaseDir "_inspect"
-
-if (Test-Path $tempInspectDir) {
-    Remove-Item -LiteralPath $tempInspectDir -Recurse -Force
-}
-
-Expand-Archive -LiteralPath $zipArtifact.FullName -DestinationPath $tempInspectDir -Force
-
-try {
-    $sensitive = Get-ChildItem -LiteralPath $tempInspectDir -Recurse -File | Where-Object {
-        $_.FullName -match $privacyPattern
-    }
-
-    if ($sensitive) {
-        throw "Sensitive files were detected inside the Windows zip artifact."
-    }
-}
-finally {
-    if (Test-Path $tempInspectDir) {
-        Remove-Item -LiteralPath $tempInspectDir -Recurse -Force
-    }
+    Remove-Item -LiteralPath $BuildRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ""
-Write-Host "Windows portable artifact:"
-Write-Host $portableExe.FullName
+Write-Host "Windows portable executable:"
+Write-Host $ExePath
 Write-Host ""
-Write-Host "Windows zip artifact:"
-Write-Host $zipArtifact.FullName
+Write-Host "Windows portable archive:"
+Write-Host $ZipPath
+Write-Host ""
+Write-Host "Release metadata:"
+Write-Host (Join-Path $VersionDirectory "RELEASE-NOTES.md")
+Write-Host (Join-Path $VersionDirectory "SHA256SUMS.txt")

@@ -4,6 +4,7 @@ release/*
 !release/*/
 release/*/*
 !release/*/RELEASE-NOTES.md
+outputs/
 
 # Node / Electron
 node_modules/
@@ -18,4 +19,6 @@ dist-electron/
 .venv/
 
 # Local app state
+.codex-tmp/
+*.log
 .DS_Store

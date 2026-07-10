@@ -7,110 +7,75 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RELEASE_DIR="$PROJECT_ROOT/release"
 APP_VERSION="$(node -p "require('$PROJECT_ROOT/package.json').version")"
 VERSION_DIR="$RELEASE_DIR/$APP_VERSION"
-ZIP_PRIVACY_PATTERN='cookie|history|config\.json|user[- ]data|electron-session|electron-user-data|token|api[_-]?key'
+RELEASE_ARCH="x64"
+BUILD_ROOT="$RELEASE_DIR/.build/$APP_VERSION/windows-$RELEASE_ARCH"
+STAGE_ROOT="$RELEASE_DIR/.stage/$APP_VERSION/windows-$RELEASE_ARCH"
+EXE_NAME="HF-Model-Downloader-$APP_VERSION-windows-$RELEASE_ARCH-portable.exe"
+ZIP_NAME="HF-Model-Downloader-$APP_VERSION-windows-$RELEASE_ARCH-portable.zip"
+EXE_PATH="$VERSION_DIR/$EXE_NAME"
+ZIP_PATH="$VERSION_DIR/$ZIP_NAME"
+FORBIDDEN_ARCHIVE_PATH='(^|/)(\.env|\.DS_Store|__MACOSX|cookies?(\.json)?|history(\.json)?|preferences\.json|electron-(session|user-data)|HF_Model_Downloader_Data|logs?|cache|downloads?|token)(/|$)'
 
-prepare_release_dir() {
-  mkdir -p "$RELEASE_DIR" "$VERSION_DIR"
-  rm -rf "$RELEASE_DIR"/win-unpacked
-  rm -f "$RELEASE_DIR"/.DS_Store(N) "$VERSION_DIR"/.DS_Store(N)
-  rm -f "$RELEASE_DIR"/*win*.zip(N) "$RELEASE_DIR"/*.exe(N) "$RELEASE_DIR"/*win*.zip.blockmap(N) "$RELEASE_DIR"/builder-debug.yml(N)
-  rm -f "$VERSION_DIR"/*win*.zip(N) "$VERSION_DIR"/*.exe(N)
+cleanup() {
+  rm -rf "$BUILD_ROOT" "$STAGE_ROOT"
 }
-
-write_release_notes() {
-  cat > "$VERSION_DIR/RELEASE-NOTES.md" <<EOF
-# HF Model Downloader $APP_VERSION
-
-## 中文说明
-
-本次发布主要补强了 Windows 分享包的启动稳定性，并继续保持桌面下载流程的一致体验。
-
-## 包含内容
-
-- \`HF Model Downloader-$APP_VERSION-arm64-mac.zip\`
-- \`HF Model Downloader-$APP_VERSION-win.zip\`
-- \`HF Model Downloader $APP_VERSION.exe\`
-- \`README-mac.txt\`
-
-## 主要更新
-
-- 修复 Windows 便携版启动时的绝对路径初始化问题
-- 将 Windows 便携版的缓存 日志 历史和默认下载目录改到程序同目录下的 \`HF_Model_Downloader_Data/\`
-- 保持仓库文件清单加载 搜索 分类与族群筛选能力
-- 保持推荐方案 历史恢复 失败重试和定位文件动作
-- 启动与打包流程继续统一到 \`package.json\` 和 \`scripts/\`
-
-## 打包与隐私
-
-- 分享包目标仍然是解压即用
-- 打包脚本会校验压缩包中不包含 cookies 历史记录 本地会话 token 或 API Key
-- 每次重新打包时，\`release/$APP_VERSION/\` 下的版本发布说明会自动刷新
-- 目前 macOS 与 Windows 版本都还是未签名状态，首次运行可能会看到系统安全提示
-
-## English
-
-## Summary
-
-This release primarily hardens the Windows portable package and keeps the desktop download flow consistent.
-
-## Included artifacts
-
-- \`HF Model Downloader-$APP_VERSION-arm64-mac.zip\`
-- \`HF Model Downloader-$APP_VERSION-win.zip\`
-- \`HF Model Downloader $APP_VERSION.exe\`
-- \`README-mac.txt\`
-
-## Highlights
-
-- Fixed the Windows portable startup failure caused by non-absolute runtime path initialization
-- Moved the Windows portable cache, logs, history, and default download directory into \`HF_Model_Downloader_Data/\` next to the app
-- Kept repository manifest loading, search, category filtering, and family filtering
-- Kept recommended presets, history restore, retry, and reveal-in-folder actions
-- Continued to unify startup and packaging around \`package.json\` and \`scripts/\`
-
-## Packaging and privacy
-
-- Shared builds are intended to be unpack-and-run
-- Packaging scripts verify that release archives do not include cookies, history, local session files, tokens, or API keys
-- Versioned release notes inside \`release/$APP_VERSION/\` are refreshed on each packaging run
-- macOS and Windows builds are currently unsigned, so first-run security prompts are expected
-EOF
-}
+trap cleanup EXIT
 
 cd "$PROJECT_ROOT"
 
 if [[ ! -d "$PROJECT_ROOT/node_modules" ]]; then
-  echo "Missing node_modules in $PROJECT_ROOT"
-  echo "Installing dependencies first..."
-  npm install
+  echo "Installing locked development dependencies with npm ci..."
+  npm ci
 fi
 
-prepare_release_dir
+mkdir -p "$VERSION_DIR"
+rm -rf "$BUILD_ROOT" "$STAGE_ROOT"
+rm -f "$EXE_PATH" "$ZIP_PATH"
+mkdir -p "$BUILD_ROOT" "$STAGE_ROOT"
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  scripts/generate-platform-icons.sh
+fi
 
 npm run build
-npx electron-builder --win portable zip --x64
 
-WIN_ZIP="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*win*.zip' | head -n 1)"
-WIN_PORTABLE_EXE="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name '*.exe' | head -n 1)"
+CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder \
+  --win portable \
+  --x64 \
+  --config.directories.output="$BUILD_ROOT"
 
-if [[ -z "$WIN_ZIP" || -z "$WIN_PORTABLE_EXE" ]]; then
-  echo "Windows build artifacts were not created as expected."
+BUILT_EXE="$(find "$BUILD_ROOT" -maxdepth 2 -type f -name '*.exe' -size +20M -print -quit)"
+if [[ -z "$BUILT_EXE" ]]; then
+  echo "Windows portable executable was not created as expected."
   exit 1
 fi
 
-if unzip -l "$WIN_ZIP" | grep -Eiq "$ZIP_PRIVACY_PATTERN"; then
-  echo "Sensitive files were detected inside the Windows zip artifact."
+cp "$BUILT_EXE" "$EXE_PATH"
+cp "$EXE_PATH" "$STAGE_ROOT/$EXE_NAME"
+cp "$PROJECT_ROOT/docs/releases/README-Windows.txt" "$STAGE_ROOT/README-Windows.txt"
+
+node scripts/release-tool.mjs verify-stage "$STAGE_ROOT"
+
+(
+  cd "$STAGE_ROOT"
+  /usr/bin/zip -qry "$ZIP_PATH" . -x '*.DS_Store' '__MACOSX/*'
+)
+
+if unzip -Z1 "$ZIP_PATH" | grep -Eiq "$FORBIDDEN_ARCHIVE_PATH"; then
+  echo "User data or a sensitive runtime path was detected inside the Windows archive."
   exit 1
 fi
 
-mv "$WIN_ZIP" "$VERSION_DIR/"
-mv "$WIN_PORTABLE_EXE" "$VERSION_DIR/"
-rm -rf "$RELEASE_DIR"/win-unpacked
-rm -f "$RELEASE_DIR"/builder-debug.yml(N)
-write_release_notes
+node scripts/release-tool.mjs finalize "$VERSION_DIR"
+node scripts/release-tool.mjs verify-checksums "$VERSION_DIR"
 
-echo "Windows portable artifact:"
-echo "$VERSION_DIR/$(basename "$WIN_PORTABLE_EXE")"
-echo
-echo "Windows zip artifact:"
-echo "$VERSION_DIR/$(basename "$WIN_ZIP")"
+echo ""
+echo "Windows portable executable:"
+echo "$EXE_PATH"
+echo ""
+echo "Windows portable archive:"
+echo "$ZIP_PATH"
+echo ""
+echo "Release metadata:"
+echo "$VERSION_DIR/RELEASE-NOTES.md"
+echo "$VERSION_DIR/SHA256SUMS.txt"
