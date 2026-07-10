@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { statfs } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -49,6 +49,9 @@ const LEGACY_ELECTRON_USER_DATA_DIR = join(app.getPath('appData'), app.getName()
 const TARGET_ELECTRON_USER_DATA_DIR = join(HF_RUNTIME_ROOT, 'electron-user-data')
 const TARGET_ELECTRON_SESSION_DIR = join(HF_RUNTIME_ROOT, 'electron-session')
 const TARGET_ELECTRON_LOGS_DIR = join(HF_RUNTIME_ROOT, 'logs')
+const TARGET_ELECTRON_TEMP_DIR = join(HF_RUNTIME_ROOT, 'temp')
+const TARGET_ELECTRON_CRASH_DUMPS_DIR = join(HF_RUNTIME_ROOT, 'crashDumps')
+const TARGET_CHROMIUM_CACHE_DIR = join(HF_RUNTIME_ROOT, 'cache', 'chromium')
 const DEFAULT_DOWNLOADS_DIR = IS_WINDOWS_PORTABLE ? join(HF_RUNTIME_ROOT, 'Downloads') : join(PROGRAM_ROOT, 'Downloads')
 const APPROVED_ROOTS_FILE = join(HF_RUNTIME_ROOT, 'approved-output-roots.json')
 const defaultPreferences: Preferences = {
@@ -81,23 +84,86 @@ function resolveHomeRoot() {
   return electronHome && isAbsolute(electronHome) ? electronHome : process.cwd()
 }
 
-function resolvePortableRoot() {
-  const portableDirectory = process.env.PORTABLE_EXECUTABLE_DIR
-  if (portableDirectory && isAbsolute(portableDirectory)) {
-    try {
-      if (statSync(portableDirectory).isDirectory()) return realpathSync.native(portableDirectory)
-    } catch {
-      // Fall through to Electron's executable directory when the environment is malformed.
-    }
+function resolveExistingNonLinkDirectory(candidate: string | undefined) {
+  if (!candidate || !isAbsolute(candidate)) return null
+  try {
+    const absoluteCandidate = resolve(candidate)
+    const metadata = lstatSync(absoluteCandidate)
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return null
+    return realpathSync.native(absoluteCandidate)
+  } catch {
+    return null
   }
-  return dirname(process.execPath)
+}
+
+function hasPortableRootMarker(candidate: string) {
+  try {
+    const marker = lstatSync(join(candidate, '.hf-model-downloader-portable-root'))
+    return marker.isFile() && !marker.isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+function resolvePortableRoot() {
+  const executableDirectory = resolveExistingNonLinkDirectory(dirname(process.execPath))
+  if (!executableDirectory) {
+    throw new Error('无法解析安全的 Windows 便携项目目录。')
+  }
+
+  const configuredRoot = resolveExistingNonLinkDirectory(process.env.HF_MODEL_DOWNLOADER_PORTABLE_ROOT)
+  if (
+    configuredRoot
+    && hasPortableRootMarker(configuredRoot)
+    && isInsideDirectory(configuredRoot, executableDirectory)
+  ) {
+    return configuredRoot
+  }
+
+  // A directly opened executable lives one level below the extracted ZIP root.
+  // The package marker lets that path keep the same project-contained data layout
+  // as the launcher without trusting an arbitrary parent directory.
+  const parentDirectory = resolveExistingNonLinkDirectory(dirname(executableDirectory))
+  if (parentDirectory && hasPortableRootMarker(parentDirectory)) return parentDirectory
+  return executableDirectory
+}
+
+function isInsideDirectory(root: string, candidate: string) {
+  const offset = relative(root, candidate)
+  return offset === '' || (offset !== '..' && !offset.startsWith(`..${sep}`) && !isAbsolute(offset))
+}
+
+function ensureRuntimeDirectory(directory: string) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  if (!IS_WINDOWS_PORTABLE) return
+
+  const metadata = lstatSync(directory)
+  const realDirectory = realpathSync.native(directory)
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || !isInsideDirectory(PORTABLE_ROOT, realDirectory)) {
+    throw new Error(`Windows 便携运行目录不安全：${directory}`)
+  }
 }
 
 function configureProcessPaths() {
-  mkdirSync(HF_ROOT, { recursive: true, mode: 0o700 })
-  mkdirSync(TARGET_ELECTRON_USER_DATA_DIR, { recursive: true, mode: 0o700 })
-  mkdirSync(TARGET_ELECTRON_SESSION_DIR, { recursive: true, mode: 0o700 })
-  mkdirSync(TARGET_ELECTRON_LOGS_DIR, { recursive: true, mode: 0o700 })
+  const runtimeDirectories = [
+    HF_ROOT,
+    TARGET_ELECTRON_USER_DATA_DIR,
+    TARGET_ELECTRON_SESSION_DIR,
+    TARGET_ELECTRON_LOGS_DIR,
+  ]
+  if (IS_WINDOWS_PORTABLE) {
+    runtimeDirectories.push(TARGET_ELECTRON_TEMP_DIR, TARGET_ELECTRON_CRASH_DUMPS_DIR, TARGET_CHROMIUM_CACHE_DIR)
+  }
+  for (const directory of runtimeDirectories) ensureRuntimeDirectory(directory)
+
+  if (IS_WINDOWS_PORTABLE) {
+    app.setPath('appData', HF_RUNTIME_ROOT)
+    app.setPath('temp', TARGET_ELECTRON_TEMP_DIR)
+    app.setPath('crashDumps', TARGET_ELECTRON_CRASH_DUMPS_DIR)
+    app.commandLine.appendSwitch('disk-cache-dir', TARGET_CHROMIUM_CACHE_DIR)
+    process.env.TEMP = TARGET_ELECTRON_TEMP_DIR
+    process.env.TMP = TARGET_ELECTRON_TEMP_DIR
+  }
   app.setPath('userData', TARGET_ELECTRON_USER_DATA_DIR)
   app.setPath('sessionData', TARGET_ELECTRON_SESSION_DIR)
   app.setPath('logs', TARGET_ELECTRON_LOGS_DIR)
@@ -113,9 +179,9 @@ function getAppPaths(): AppPaths {
   const preferencesFile = join(appDataDir, 'preferences.json')
   const downloadsDir = DEFAULT_DOWNLOADS_DIR
   const legacyAppDataDir = join(LEGACY_ELECTRON_USER_DATA_DIR, 'hf-desktop')
-  mkdirSync(downloadsDir, { recursive: true, mode: 0o700 })
-  mkdirSync(cacheDir, { recursive: true, mode: 0o700 })
-  migrateLegacyData(legacyAppDataDir, { historyFile, preferencesFile })
+  ensureRuntimeDirectory(downloadsDir)
+  ensureRuntimeDirectory(cacheDir)
+  if (!IS_WINDOWS_PORTABLE) migrateLegacyData(legacyAppDataDir, { historyFile, preferencesFile })
   return { downloadsDir, appDataDir, historyFile, preferencesFile, cacheDir }
 }
 
@@ -276,11 +342,13 @@ function getAppInfo(): AppInfo {
 
 function getUpdateService() {
   if (!updateService) {
+    const updatesDir = join(getAppPaths().appDataDir, 'updates')
+    ensureRuntimeDirectory(updatesDir)
     updateService = new UpdateService({
       currentVersion: app.getVersion(),
       platform: process.platform,
       arch: process.arch,
-      updatesDir: join(getAppPaths().appDataDir, 'updates'),
+      updatesDir,
     })
   }
   return updateService

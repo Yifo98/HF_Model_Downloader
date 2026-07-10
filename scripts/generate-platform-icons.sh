@@ -24,6 +24,11 @@ if [[ ! -f "$SOURCE_ICON" ]]; then
   exit 1
 fi
 
+if [[ "$(sips -g hasAlpha "$SOURCE_ICON" | awk '/hasAlpha:/ { print $2 }')" != "yes" ]]; then
+  echo "Source logo must contain a real alpha channel; opaque matte backgrounds are not allowed."
+  exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR" "$ICONSET_DIR"
 
 create_png() {

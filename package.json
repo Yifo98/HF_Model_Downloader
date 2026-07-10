@@ -1,7 +1,7 @@
 {
   "name": "hf-model-downloader",
   "private": true,
-  "version": "5.6.1",
+  "version": "5.6.2",
   "type": "module",
   "main": "dist-electron/main.js",
   "description": "HF Model Downloader 5.6 Sol desktop workspace for discovering, selecting, and securely downloading Hugging Face model files.",
@@ -21,6 +21,7 @@
     "start": "electron .",
     "launch:mac": "zsh scripts/launch-mac.sh",
     "icons:generate": "zsh scripts/generate-platform-icons.sh",
+    "brand:render": "electron scripts/render-brand-card.cjs",
     "dist": "npm run build && electron-builder",
     "dist:mac": "zsh scripts/build-mac-share.sh",
     "dist:win": "zsh scripts/build-win-share.sh",
@@ -75,8 +76,7 @@
     },
     "win": {
       "icon": "assets/platform/icon.ico",
-      "artifactName": "HF-Model-Downloader-${version}-windows-${arch}-portable.${ext}",
-      "target": "portable"
+      "target": "dir"
     }
   }
 }

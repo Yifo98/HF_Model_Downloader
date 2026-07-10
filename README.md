@@ -1,22 +1,22 @@
 # HF Model Downloader 5.6 Sol
 
 <p align="center">
-  <img src="assets/logo-sol.png" width="184" alt="HF Model Downloader 5.6 Sol Logo" />
+  <img src="assets/github-sol-card.png" width="100%" alt="HF Model Downloader 5.6 Sol · 连接、策展、下载、监控" />
 </p>
 
 HF Model Downloader 是一个面向 Hugging Face 模型仓库的 Electron 桌面工作台。5.6 Sol 将主流程重构为“连接、策展、下载、监控”四个阶段，并重新设计了下载身份、凭证、路径和桌面权限边界。
 
-> 当前源码版本为 `5.6.1`。发布资产是未签名的便携版本；macOS 公证、Windows Authenticode 与双平台真机验收状态会在对应 Release 中明确标注。
+> 当前源码版本为 `5.6.2`。发布资产是未签名的便携版本；macOS 公证、Windows Authenticode 与双平台真机验收状态会在对应 Release 中明确标注。
 
 ## 下载便携版
 
-- [前往 5.6.1 GitHub Release](https://github.com/Yifo98/HF_Model_Downloader/releases/tag/v5.6.1)
-- macOS Apple Silicon：`HF-Model-Downloader-5.6.1-mac-arm64-portable.zip`
-- Windows x64：`HF-Model-Downloader-5.6.1-windows-x64-portable.zip`，或直接运行同名 portable `.exe`
+- [前往 5.6.2 GitHub Release](https://github.com/Yifo98/HF_Model_Downloader/releases/tag/v5.6.2)
+- macOS Apple Silicon：`HF-Model-Downloader-5.6.2-mac-arm64-portable.zip`
+- Windows x64：`HF-Model-Downloader-5.6.2-windows-x64-portable.zip`；解压后运行根目录的 `Start HF Model Downloader.cmd`
 - Electron 与运行依赖已完整打入便携包；普通用户不需要安装 Node.js、npm 或 Python
 - 下载后使用同一 Release 的 `SHA256SUMS.txt` 核对文件完整性
 
-完整变化与首次运行边界见 [5.6.1 Release Notes](docs/releases/5.6.1.md)。
+完整变化与首次运行边界见 [5.6.2 Release Notes](docs/releases/5.6.2.md)。
 
 ## 核心能力
 
@@ -29,7 +29,7 @@ HF Model Downloader 是一个面向 Hugging Face 模型仓库的 Electron 桌面
 - Token 只在当前会话使用，只允许发往 Hugging Face 官方源
 - 下载目录、文件定位、运行目录打开和外链都由主进程按白名单处理
 - 内置 GitHub Release 检查更新，显示 Release Notes，并在下载后核验 SHA-256
-- Windows 便携版使用程序旁的数据目录，macOS 使用用户目录下的独立运行区
+- Windows 便携版把数据、下载、缓存、日志与临时目录统一收进解压项目根的 `HF_Model_Downloader_Data/`；macOS 使用用户目录下的独立运行区
 
 ## 使用方式
 
@@ -85,11 +85,12 @@ npm run dist:portable
 - [文档索引](docs/INDEX.md)
 - [5.6 Sol 运行架构](docs/architecture/5.6-sol.md)
 - [5.6 安全复核](docs/security/5.6-review.md)
-- [5.6.1 Release Notes](docs/releases/5.6.1.md)
+- [5.6.2 Release Notes](docs/releases/5.6.2.md)
+- [智能体奖励测评](docs/agents/5.6-sol-agent-reward-evaluation.md)
 - [设计验收](design-qa.md)
 
 ## 版本规则
 
-版本号唯一来源是 `package.json`。当前版本为 `5.6.1`；打包文件名、`release/<version>/` 目录、发布说明和 `SHA256SUMS.txt` 由发行脚本同步生成。
+版本号唯一来源是 `package.json`。当前版本为 `5.6.2`；打包文件名、`release/<version>/` 目录、发布说明和 `SHA256SUMS.txt` 由发行脚本同步生成。
 
-公开稳定发行前仍需完成 macOS 签名与公证、Windows Authenticode，以及 macOS/Windows 便携包真机验收。平台图标和校验文件已纳入 5.6.1 构建链。
+公开稳定发行前仍需完成 macOS 签名与公证、Windows Authenticode，以及 macOS/Windows 便携包真机验收。透明平台图标、GitHub 品牌卡片和校验文件已纳入 5.6.2 构建链。
