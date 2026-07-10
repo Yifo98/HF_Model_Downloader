@@ -1,123 +1,95 @@
-# HF Model Downloader
+# HF Model Downloader 5.6 Sol
 
-![HF Model Downloader Logo](assets/logo.svg)
+<p align="center">
+  <img src="assets/logo-sol.png" width="184" alt="HF Model Downloader 5.6 Sol Logo" />
+</p>
 
-HF Model Downloader 是一个面向 Hugging Face 的桌面下载器  
-支持仓库清单浏览 文件筛选 推荐方案 历史记录 失败重试和多 Endpoint 下载
+HF Model Downloader 是一个面向 Hugging Face 模型仓库的 Electron 桌面工作台。5.6 Sol 将主流程重构为“连接、策展、下载、监控”四个阶段，并重新设计了下载身份、凭证、路径和桌面权限边界。
 
-## 下载
+> 当前源码版本为 `5.6.1`。发布资产是未签名的便携版本；macOS 公证、Windows Authenticode 与双平台真机验收状态会在对应 Release 中明确标注。
 
-- [前往 GitHub Releases 下载](https://github.com/Yifo98/HF_Model_Downloader/releases/latest)
-- macOS：优先下载 `HF Model Downloader-2.0.0-arm64-mac.zip`
-- Windows：优先下载 `HF Model Downloader-2.0.0-win.zip`，也可以直接使用便携版 `.exe`
+## 下载便携版
 
-标准分享包目标就是解压即用
+- [前往 5.6.1 GitHub Release](https://github.com/Yifo98/HF_Model_Downloader/releases/tag/v5.6.1)
+- macOS Apple Silicon：`HF-Model-Downloader-5.6.1-mac-arm64-portable.zip`
+- Windows x64：`HF-Model-Downloader-5.6.1-windows-x64-portable.zip`，或直接运行同名 portable `.exe`
+- Electron 与运行依赖已完整打入便携包；普通用户不需要安装 Node.js、npm 或 Python
+- 下载后使用同一 Release 的 `SHA256SUMS.txt` 核对文件完整性
 
-## 功能概览
+完整变化与首次运行边界见 [5.6.1 Release Notes](docs/releases/5.6.1.md)。
 
-- 输入 `owner/repo` 后直接拉取文件清单
-- 支持官方源 HF Mirror 和自定义 Endpoint
-- 可按文件名 路径 分类和族群筛选结果
-- 提供推荐方案 帮你快速选模型权重或完整推理集
-- 支持并发下载 历史记录 打开目录 定位文件和失败重试
-- 桌面端运行时会自动管理缓存和应用数据目录
+## 核心能力
+
+- 读取 `owner/repo` 的固定 commit 清单，而不是直接依赖可变的 `main`
+- 按文件名、路径、用途族群和推荐方案选择下载内容
+- 默认选择运行所需文件，避免无意下载整个仓库
+- 支持并发下载、断点续传、取消、历史恢复、失败重试和实时队列
+- 下载历史可与本地文件刷新同步；删除时可明确选择“只删记录”或“记录与文件一起删除”
+- LFS 文件校验 SHA-256，普通 Git 文件校验 blob OID
+- Token 只在当前会话使用，只允许发往 Hugging Face 官方源
+- 下载目录、文件定位、运行目录打开和外链都由主进程按白名单处理
+- 内置 GitHub Release 检查更新，显示 Release Notes，并在下载后核验 SHA-256
+- Windows 便携版使用程序旁的数据目录，macOS 使用用户目录下的独立运行区
 
 ## 使用方式
 
-1. 填写 `owner/repo`
-2. 选择下载目录
-3. 选择官方源 镜像源 或自定义 Endpoint
-4. 加载文件清单
-5. 用筛选和推荐方案勾选需要的文件
-6. 点击开始下载 并在右侧查看队列和历史
+1. 填写 Hugging Face 仓库 ID，例如 `Comfy-Org/frame_interpolation`。
+2. 选择官方源或内置 HF Mirror；自定义 HTTPS Endpoint 只在开发模式开放。
+3. 私有仓库如需 Token，只能搭配官方源使用。
+4. 选择下载目录并读取文件清单。
+5. 使用“运行所需”“仅模型权重”“文档预览”或手动筛选。
+6. 启动下载，在右侧监控队列、速度、校验结果和运行日志。
 
-## 发布包说明
-
-### macOS
-
-当前 macOS 分享包为未签名应用
-
-首次在其他 Mac 上运行时：
-
-1. 解压 zip
-2. 右键应用并选择 `打开`
-3. 如果系统拦截 在系统设置中选择 `仍要打开`
-
-### Windows
-
-当前 Windows 分享包为未签名便携版
-
-首次在其他电脑上运行时 如果 SmartScreen 弹出提示：
-
-1. 点击 `更多信息`
-2. 点击 `仍要运行`
-
-Windows 便携版会把以下内容放在程序同目录下的 `HF_Model_Downloader_Data/`：
-
-- 应用数据
-- 缓存
-- 日志
-- 默认下载目录
-
-这样复制整个文件夹到别的电脑时，数据也会一起跟着走，不会强制落到 `C` 盘用户目录。
+优先选择 `safetensors` 权重。下载与哈希校验成功只代表文件传输和内容身份正确，不代表模型代码天然可信。
 
 ## 本地开发
 
-### 安装依赖
+需要 Node.js 20+ 与 npm。
 
 ```bash
-npm install
-```
-
-### 启动开发版
-
-```bash
+npm ci
 npm run dev
 ```
 
-### macOS 启动器
-
-仓库根目录保留了一个 macOS 启动器：
-
-- `Launch HF Model Downloader.command`
-
-它会调用 `scripts/launch-mac.sh`  
-如果本机还没安装依赖 会先执行一次 `npm install`
-
-### 本地打包
+常用检查：
 
 ```bash
+npm test
+npm run lint
 npm run build
+npm audit
+```
+
+只有发布任务才运行：
+
+```bash
 npm run dist:mac
 npm run dist:win
+npm run dist:portable
 ```
 
-如果你在 Windows 本机上执行分享打包：
+仓库根目录的 `Launch HF Model Downloader.command` 可在 macOS 上启动开发版。
 
-```powershell
-npm run dist:share
-```
+## 数据与隐私
 
-## 依赖说明
+- macOS/Linux 默认下载目录：`~/Program/Downloads`
+- 应用运行数据：`~/Program/HuggingFace/HF_Model_Downloader`
+- Windows portable：程序旁的 `HF_Model_Downloader_Data/`
+- Token 不写入偏好、历史、日志或渲染层下载状态
+- 应用不上传下载历史、文件清单或本地路径，不包含遥测
 
-如果你使用的是 GitHub Releases 中的标准分享包 一般不需要额外安装 Node.js 或 Python  
-只有在你打算直接运行源码时 才需要先安装：
+更完整的边界与发布门槛见 [5.6 安全复核](docs/security/5.6-review.md)。
 
-- Node.js 20+
-- npm
+## 文档
+
+- [文档索引](docs/INDEX.md)
+- [5.6 Sol 运行架构](docs/architecture/5.6-sol.md)
+- [5.6 安全复核](docs/security/5.6-review.md)
+- [5.6.1 Release Notes](docs/releases/5.6.1.md)
+- [设计验收](design-qa.md)
 
 ## 版本规则
 
-- 小改动或修复 bug：升级 `patch`，例如 `2.0.0 -> 2.0.1`
-- 功能增强但不改桌面主形态：升级 `minor`，例如 `2.0.0 -> 2.1.0`
-- 桌面架构或产品主流程发生明显代际变化：升级 `major`，例如 `2.0.0 -> 3.0.0`
+版本号唯一来源是 `package.json`。当前版本为 `5.6.1`；打包文件名、`release/<version>/` 目录、发布说明和 `SHA256SUMS.txt` 由发行脚本同步生成。
 
-当前版本号唯一来源是 `package.json`。打包文件名、`release/<version>/` 目录和自动生成的发布说明都会跟着同步。
-
-常用命令：
-
-```bash
-npm run version:patch
-npm run version:minor
-npm run version:major
-```
+公开稳定发行前仍需完成 macOS 签名与公证、Windows Authenticode，以及 macOS/Windows 便携包真机验收。平台图标和校验文件已纳入 5.6.1 构建链。

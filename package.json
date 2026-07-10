@@ -1,10 +1,10 @@
 {
   "name": "hf-model-downloader",
   "private": true,
-  "version": "2.0.1",
+  "version": "5.6.1",
   "type": "module",
   "main": "dist-electron/main.js",
-  "description": "Electron front-end for browsing and downloading Hugging Face model files.",
+  "description": "HF Model Downloader 5.6 Sol desktop workspace for discovering, selecting, and securely downloading Hugging Face model files.",
   "author": "Yifo",
   "scripts": {
     "version:patch": "npm version patch --no-git-tag-version",
@@ -20,9 +20,11 @@
     "preview": "vite preview",
     "start": "electron .",
     "launch:mac": "zsh scripts/launch-mac.sh",
+    "icons:generate": "zsh scripts/generate-platform-icons.sh",
     "dist": "npm run build && electron-builder",
     "dist:mac": "zsh scripts/build-mac-share.sh",
     "dist:win": "zsh scripts/build-win-share.sh",
+    "dist:portable": "npm run dist:mac && npm run dist:win",
     "dist:share": "powershell -ExecutionPolicy Bypass -File scripts/build-shareable-package.ps1",
     "test": "npm run build:electron && node --test dist-electron/**/*.test.js"
   },
@@ -50,26 +52,31 @@
   "build": {
     "appId": "com.yifo.hfdownloader",
     "productName": "HF Model Downloader",
+    "asar": true,
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**",
       "dist-electron/**",
+      "!dist-electron/**/*.test.js",
       "electron/preload.cjs",
       "package.json",
-      "assets/**"
+      "assets/logo-sol.png"
     ],
     "mac": {
+      "icon": "assets/platform/icon.icns",
       "category": "public.app-category.developer-tools",
+      "artifactName": "HF-Model-Downloader-${version}-mac-${arch}.${ext}",
       "target": [
         "dmg",
         "zip"
       ]
     },
     "win": {
-      "target": "portable",
-      "signAndEditExecutable": false
+      "icon": "assets/platform/icon.ico",
+      "artifactName": "HF-Model-Downloader-${version}-windows-${arch}-portable.${ext}",
+      "target": "portable"
     }
   }
 }

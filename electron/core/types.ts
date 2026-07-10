@@ -31,6 +31,9 @@ export type FileManifestItem = {
   type: 'file' | 'directory'
   category: string
   family: string
+  revision: string
+  lfsSha256?: string
+  gitBlobOid?: string
 }
 
 export type DownloadRequest = {
@@ -41,6 +44,10 @@ export type DownloadRequest = {
   selectedPaths: string[]
   concurrency: number
   createRepoFolder: boolean
+}
+
+export type DownloadRequestSummary = Omit<DownloadRequest, 'token'> & {
+  authenticated: boolean
 }
 
 export type DownloadStatus = 'idle' | 'running' | 'success' | 'error' | 'cancelled'
@@ -72,7 +79,7 @@ export type DownloadUpdate = {
   queue: QueueSnapshot
   jobs: DownloadJobSnapshot[]
   logs: string[]
-  activeRequest: DownloadRequest | null
+  activeRequest: DownloadRequestSummary | null
 }
 
 export type HistoryEntry = {
@@ -87,15 +94,75 @@ export type HistoryEntry = {
   downloadedBytes: number
   totalBytes: number
   errorMessage: string | null
+  createRepoFolder: boolean | null
+  presentCount: number
+  missingCount: number
+  syncStatus: 'unchecked' | 'available' | 'partial'
+}
+
+export type HistoryDeleteMode = 'record-only' | 'record-and-files'
+
+export type HistoryDeleteResult = {
+  entries: HistoryEntry[]
+  removedFiles: number
+  missingFiles: number
+  failedFiles: number
+  skippedShared: number
+  skippedUnsafe: number
+  recordDeleted: boolean
+  message: string
+}
+
+export type HistorySyncResult = {
+  entries: HistoryEntry[]
+  removedRecords: number
+  message: string
+}
+
+export type ManagedPathKind = 'downloads' | 'appData' | 'cache'
+
+export type UpdateCheckResult = {
+  currentVersion: string
+  latestVersion: string
+  updateAvailable: boolean
+  releaseName: string
+  releaseNotes: string
+  publishedAt: string
+  packageSize: number
+  platform: NodeJS.Platform
+  arch: string
+  downloadUrl: string
+  sha256: string
+  error?: string
+}
+
+export type UpdatePrepareResult = {
+  ready: boolean
+  verified: boolean
+  packagePath?: string
+  message: string
+}
+
+export type UpdateApplyResult = {
+  started: boolean
+  requiredManual: boolean
+  packagePath?: string
+  message: string
 }
 
 export type Preferences = {
   repoId: string
   endpoint: string
-  token: string
   outputDir: string
   concurrency: number
   createRepoFolder: boolean
+}
+
+export type AppInfo = {
+  name: string
+  version: string
+  platform: NodeJS.Platform
+  packaged: boolean
 }
 
 export type EndpointTestResult = {

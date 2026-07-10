@@ -6,30 +6,24 @@ type FileManifestTableProps = {
   items: FileManifestItem[]
   selected: string[]
   onToggle: (path: string) => void
-  onSelectAll: () => void
-  onClearAll: () => void
 }
 
-export function FileManifestTable({ items, selected, onToggle, onSelectAll, onClearAll }: FileManifestTableProps) {
+export function FileManifestTable({ items, selected, onToggle }: FileManifestTableProps) {
   return (
-    <section className="panel panel--table">
-      <div className="panel__header">
-        <div>
-          <h3>文件清单</h3>
-          <p>{items.length} 个文件，勾选你真正想下载的内容。</p>
+    <div className="manifest-frame">
+      {items.length === 0 ? (
+        <div className="manifest-empty">
+          <strong>这里还没有文件</strong>
+          <p>先读取仓库清单；如果已经读取过，请调整搜索或族群筛选。</p>
         </div>
-        <div className="panel__actions">
-          <button type="button" className="ghost-button" onClick={onSelectAll}>全选</button>
-          <button type="button" className="ghost-button" onClick={onClearAll}>清空</button>
-        </div>
-      </div>
-      <div className="table-wrap">
-        {items.length === 0 ? <p className="empty-state empty-state--padded">当前筛选结果为空。先清掉文件筛选或族群筛选，或者回上面重新拉一次清单。</p> : null}
-        <table className="manifest-table">
+      ) : (
+        <div className="manifest-scroll">
+          <table className="manifest-table">
+            <caption className="sr-only">Hugging Face 仓库文件清单</caption>
           <thead>
             <tr>
-              <th>选择</th>
-              <th>路径</th>
+                <th className="manifest-table__check">选择</th>
+                <th>文件路径</th>
               <th>分类</th>
               <th>族群</th>
               <th>大小</th>
@@ -40,19 +34,25 @@ export function FileManifestTable({ items, selected, onToggle, onSelectAll, onCl
               const checked = selected.includes(item.path)
               return (
                 <tr key={item.path}>
-                  <td>
-                    <input type="checkbox" checked={checked} onChange={() => onToggle(item.path)} />
+                    <td className="manifest-table__check">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onToggle(item.path)}
+                        aria-label={`选择 ${item.path}`}
+                      />
                   </td>
                   <td className="manifest-table__path">{item.path}</td>
-                  <td>{item.category}</td>
-                  <td>{item.family}</td>
-                  <td>{formatBytes(item.size)}</td>
+                    <td><span className="file-tag">{item.category}</span></td>
+                    <td><span className="file-family">{item.family}</span></td>
+                    <td className="manifest-table__size">{formatBytes(item.size)}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-      </div>
-    </section>
+        </div>
+      )}
+    </div>
   )
 }
