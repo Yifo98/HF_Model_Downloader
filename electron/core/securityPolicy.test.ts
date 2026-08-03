@@ -80,9 +80,21 @@ test('preferences never retain renderer token fields', () => {
     outputDir: '/tmp/models',
     concurrency: 3,
     createRepoFolder: true,
+    networkMode: 'auto' as const,
+    proxyUrl: '',
   }
   const preferences = sanitizePreferences({ ...fallback, token: 'hf_secret' }, fallback)
   assert.equal('token' in preferences, false)
+  assert.equal(preferences.networkMode, 'auto')
+  assert.equal(preferences.proxyUrl, '')
+
+  const unsafeProxy = sanitizePreferences({
+    ...fallback,
+    networkMode: 'custom',
+    proxyUrl: 'http://user:secret@127.0.0.1:7897',
+  }, fallback)
+  assert.equal(unsafeProxy.networkMode, 'auto')
+  assert.equal(unsafeProxy.proxyUrl, '')
 })
 
 test('history rejects malformed session identifiers and truncates unsafe rows', () => {

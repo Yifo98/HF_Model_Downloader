@@ -10,6 +10,7 @@
 
 ## 发行
 
+- [5.6.3 Release Notes](releases/5.6.3.md)：系统代理自动检测、手动网络通道和可折叠仓库目录树。
 - [5.6.2 Release Notes](releases/5.6.2.md)：透明图标、GitHub 品牌卡片、Windows ZIP-only 与项目自包含数据边界。
 - [5.6.1 Release Notes](releases/5.6.1.md)：界面、历史同步、检查更新、便携资产与首次运行限制。
 - [macOS 便携包说明](releases/README-macOS.txt)

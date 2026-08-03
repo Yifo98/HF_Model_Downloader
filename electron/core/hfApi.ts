@@ -1,11 +1,9 @@
-import { request as httpRequest } from 'node:http'
-import { request as httpsRequest } from 'node:https'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import type { EndpointTestResult, FileManifestItem } from './types.js'
 
 const OFFICIAL_ENDPOINT = 'https://huggingface.co'
-const REQUEST_TIMEOUT_MS = 12000
+const REQUEST_TIMEOUT_MS = 8000
 const MAX_API_RESPONSE_BYTES = 8 * 1024 * 1024
 const MAX_ERROR_DETAIL_CHARS = 2_048
 const MAX_MANIFEST_FILES = 10_000
@@ -18,6 +16,10 @@ const LOCAL_HTTP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 const PORTABLE_INVALID_CHARACTERS = '<>:"|?*'
 const WINDOWS_RESERVED_NAMES = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 const RESERVED_PARTIALS_DIRECTORY = '.hf-model-downloader-partials'
+
+export type NetworkFetch = (input: string, init?: RequestInit) => Promise<Response>
+
+const defaultNetworkFetch: NetworkFetch = (input, init) => fetch(input, init)
 
 function trimSlash(value: string) {
   return value.trim().replace(/\/+$/, '')
@@ -271,67 +273,54 @@ export function readErrorMessage(body: string) {
   }
 }
 
-async function requestSnapshot(url: string, headers: Headers, family?: 4): Promise<ResponseSnapshot> {
-  const target = new URL(url)
-  await assertSafeNetworkUrl(target, isLoopbackHostname(target.hostname))
-  const requestImpl = target.protocol === 'http:' ? httpRequest : httpsRequest
+async function readBoundedResponseBody(response: Response) {
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  const chunks: Uint8Array[] = []
+  let receivedBytes = 0
 
-  return await new Promise<ResponseSnapshot>((resolve, reject) => {
-    const req = requestImpl(target, {
-      method: 'GET',
-      headers: Object.fromEntries(headers.entries()),
-      timeout: REQUEST_TIMEOUT_MS,
-      family,
-    }, (res) => {
-      const chunks: Buffer[] = []
-      let receivedBytes = 0
-
-      res.on('data', (chunk) => {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-        receivedBytes += buffer.length
-        if (receivedBytes > MAX_API_RESPONSE_BYTES) {
-          req.destroy(new Error('Endpoint 响应过大，已中止读取。'))
-          return
-        }
-        chunks.push(buffer)
-      })
-
-      res.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8')
-        resolve({
-          ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
-          status: res.statusCode ?? 0,
-          statusText: res.statusMessage ?? '',
-          body,
-          linkHeader: Array.isArray(res.headers.link) ? res.headers.link[0] ?? null : res.headers.link ?? null,
-        })
-      })
-    })
-
-    req.on('timeout', () => {
-      req.destroy(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`))
-    })
-
-    req.on('error', (error) => {
-      reject(error)
-    })
-
-    req.end()
-  })
+  while (true) {
+    const result = await reader.read()
+    if (result.done) break
+    receivedBytes += result.value.byteLength
+    if (receivedBytes > MAX_API_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => undefined)
+      throw new Error('Endpoint 响应过大，已中止读取。')
+    }
+    chunks.push(result.value)
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8')
 }
 
-async function requestSnapshotWithFallback(url: string, headers: Headers) {
-  let lastError: Error | null = null
+async function requestSnapshot(url: string, headers: Headers, networkFetch: NetworkFetch): Promise<ResponseSnapshot> {
+  const target = new URL(url)
+  await assertSafeNetworkUrl(target, isLoopbackHostname(target.hostname))
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`网络请求超过 ${REQUEST_TIMEOUT_MS / 1000} 秒，已停止等待。`))
+  }, REQUEST_TIMEOUT_MS)
 
-  for (const family of [4, undefined] as const) {
-    try {
-      return await requestSnapshot(url, headers, family)
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown request error')
+  try {
+    const response = await networkFetch(target.toString(), {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+      redirect: 'manual',
+    })
+    const body = await readBoundedResponseBody(response)
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      body,
+      linkHeader: response.headers.get('link'),
     }
+  } catch (error) {
+    if (controller.signal.aborted && controller.signal.reason instanceof Error) throw controller.signal.reason
+    throw error
+  } finally {
+    clearTimeout(timeout)
   }
-
-  throw lastError ?? new Error('Unknown request error')
 }
 
 function classifyFamily(path: string) {
@@ -442,7 +431,7 @@ export function getNextTreePageUrl(linkHeader: string | null, currentUrl: string
   return next.toString()
 }
 
-async function listTreeFiles(endpoint: string, repoId: string, revision: string, token: string | null) {
+async function listTreeFiles(endpoint: string, repoId: string, revision: string, token: string | null, networkFetch: NetworkFetch) {
   const normalizedRevision = normalizeCommitRevision(revision)
   let nextUrl: string | null = `${normalizeEndpoint(endpoint)}/api/models/${encodeRepoId(repoId)}/tree/${encodeURIComponent(normalizedRevision)}?recursive=1&expand=1`
   const seenUrls = new Set<string>()
@@ -451,7 +440,7 @@ async function listTreeFiles(endpoint: string, repoId: string, revision: string,
   for (let page = 0; nextUrl && page < MAX_TREE_PAGES; page += 1) {
     if (seenUrls.has(nextUrl)) throw new Error('文件清单分页链接出现循环。')
     seenUrls.add(nextUrl)
-    const response = await requestSnapshotWithFallback(nextUrl, buildHeaders(token))
+    const response = await requestSnapshot(nextUrl, buildHeaders(token), networkFetch)
     if (!response.ok) {
       const detail = readErrorMessage(response.body)
       throw new Error(buildApiErrorMessage('无法读取文件清单', response.status, detail))
@@ -476,9 +465,9 @@ type ModelMetadata = {
   siblings: Array<Record<string, unknown>>
 }
 
-async function getModelMetadata(endpoint: string, repoId: string, token: string | null): Promise<ModelMetadata> {
+async function getModelMetadata(endpoint: string, repoId: string, token: string | null, networkFetch: NetworkFetch): Promise<ModelMetadata> {
   const metadataUrl = `${normalizeEndpoint(endpoint)}/api/models/${encodeRepoId(repoId)}?blobs=true`
-  const response = await requestSnapshotWithFallback(metadataUrl, buildHeaders(token))
+  const response = await requestSnapshot(metadataUrl, buildHeaders(token), networkFetch)
   if (!response.ok) {
     const detail = readErrorMessage(response.body)
     throw new Error(buildApiErrorMessage('无法读取仓库元数据', response.status, detail))
@@ -496,7 +485,11 @@ async function getModelMetadata(endpoint: string, repoId: string, token: string 
   return { revision, siblings }
 }
 
-export async function testEndpoint(endpoint: string, token: string | null): Promise<EndpointTestResult> {
+export async function testEndpoint(
+  endpoint: string,
+  token: string | null,
+  networkFetch: NetworkFetch = defaultNetworkFetch,
+): Promise<EndpointTestResult> {
   const start = Date.now()
   let lastFailure = '连接失败'
 
@@ -504,7 +497,7 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
     const safeToken = normalizeTokenForEndpoint(endpoint, token)
     for (const probe of getEndpointProbePlan(endpoint, Boolean(safeToken))) {
       try {
-        const response = await requestSnapshotWithFallback(probe.url, buildHeaders(safeToken))
+        const response = await requestSnapshot(probe.url, buildHeaders(safeToken), networkFetch)
 
         if (response.ok) {
           return {
@@ -528,9 +521,7 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
         }
       } catch (error) {
         lastFailure = error instanceof Error ? `网络请求失败 · ${error.message}` : '连接失败'
-        if (probe.failClosed) {
-          return { ok: false, message: lastFailure, latencyMs: Date.now() - start }
-        }
+        return { ok: false, message: lastFailure, latencyMs: Date.now() - start }
       }
     }
   } catch (error) {
@@ -544,15 +535,20 @@ export async function testEndpoint(endpoint: string, token: string | null): Prom
   }
 }
 
-export async function listModelFiles(endpoint: string, repoId: string, token: string | null): Promise<FileManifestItem[]> {
+export async function listModelFiles(
+  endpoint: string,
+  repoId: string,
+  token: string | null,
+  networkFetch: NetworkFetch = defaultNetworkFetch,
+): Promise<FileManifestItem[]> {
   const normalizedRepoId = normalizeRepoId(repoId)
   const normalizedEndpoint = normalizeEndpoint(endpoint)
   const safeToken = normalizeTokenForEndpoint(normalizedEndpoint, token)
 
-  const metadata = await getModelMetadata(normalizedEndpoint, normalizedRepoId, safeToken)
+  const metadata = await getModelMetadata(normalizedEndpoint, normalizedRepoId, safeToken, networkFetch)
   let rows = toManifestItems(metadata.siblings, metadata.revision, 'rfilename')
   if (rows.length === 0) {
-    rows = await listTreeFiles(normalizedEndpoint, normalizedRepoId, metadata.revision, safeToken)
+    rows = await listTreeFiles(normalizedEndpoint, normalizedRepoId, metadata.revision, safeToken, networkFetch)
   }
   if (rows.length === 0) {
     throw new Error('文件清单为空。这个仓库可能需要登录权限，或者当前 endpoint 不支持列目录。')

@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { getSafeRelativePathSegments, normalizeEndpoint, normalizeRepoId, normalizeTokenForEndpoint as enforceOfficialTokenEndpoint } from './hfApi.js'
+import { sanitizeNetworkConfig } from './networkPolicy.js'
 import type { DownloadRequest, HistoryEntry, Preferences } from './types.js'
 
 export const MAX_SELECTED_FILES = 10_000
@@ -169,6 +170,13 @@ export function sanitizePreferences(value: unknown, fallback: Preferences): Pref
   const repoId = typeof value.repoId === 'string' && value.repoId.length <= 256 && !value.repoId.includes('\0')
     ? value.repoId
     : fallback.repoId
+  const networkConfig = sanitizeNetworkConfig({
+    mode: value.networkMode,
+    proxyUrl: value.proxyUrl,
+  }, {
+    mode: fallback.networkMode,
+    proxyUrl: fallback.proxyUrl,
+  })
 
   return {
     repoId,
@@ -176,6 +184,8 @@ export function sanitizePreferences(value: unknown, fallback: Preferences): Pref
     outputDir,
     concurrency: Number.isFinite(concurrency) ? Math.max(1, Math.min(Math.trunc(concurrency), 8)) : fallback.concurrency,
     createRepoFolder: typeof value.createRepoFolder === 'boolean' ? value.createRepoFolder : fallback.createRepoFolder,
+    networkMode: networkConfig.mode,
+    proxyUrl: networkConfig.proxyUrl,
   }
 }
 

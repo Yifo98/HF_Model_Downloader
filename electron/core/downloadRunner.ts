@@ -22,6 +22,7 @@ import {
   normalizeEndpoint,
   normalizeRepoId,
   normalizeTokenForEndpoint,
+  type NetworkFetch,
 } from './hfApi.js'
 import { MAX_SELECTED_FILES } from './securityPolicy.js'
 import type { DownloadJobSnapshot, DownloadRequest, DownloadRequestSummary, DownloadUpdate, FileManifestItem, QueueSnapshot } from './types.js'
@@ -275,6 +276,7 @@ export class DownloadRunner {
     request: DownloadRequest,
     manifest: FileManifestItem[],
     private readonly callbacks: DownloadRunnerCallbacks,
+    private readonly networkFetch: NetworkFetch = (input, init) => fetch(input, init),
   ) {
     this.request = normalizeDownloadRequest(request)
     this.manifestByPath = new Map()
@@ -399,7 +401,7 @@ export class DownloadRunner {
       const timeout = setTimeout(() => controller.abort(new Error('连接响应超时。')), RESPONSE_HEADER_TIMEOUT_MS)
       let response: Response
       try {
-        response = await fetch(currentUrl, {
+        response = await this.networkFetch(currentUrl.toString(), {
           headers: requestHeaders,
           signal: controller.signal,
           redirect: 'manual',

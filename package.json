@@ -1,7 +1,7 @@
 {
   "name": "hf-model-downloader",
   "private": true,
-  "version": "5.6.2",
+  "version": "5.6.3",
   "type": "module",
   "main": "dist-electron/main.js",
   "description": "HF Model Downloader 5.6 Sol desktop workspace for discovering, selecting, and securely downloading Hugging Face model files.",
@@ -27,7 +27,7 @@
     "dist:win": "zsh scripts/build-win-share.sh",
     "dist:portable": "npm run dist:mac && npm run dist:win",
     "dist:share": "powershell -ExecutionPolicy Bypass -File scripts/build-shareable-package.ps1",
-    "test": "npm run build:electron && node --test dist-electron/**/*.test.js"
+    "test": "npm run build:electron && node --test dist-electron/**/*.test.js && node --test tests/manifestTree.test.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

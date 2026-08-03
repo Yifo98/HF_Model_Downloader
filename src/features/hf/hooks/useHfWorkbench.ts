@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { formatBytes } from '../services/format'
+import { updatePathSelection } from '../services/manifestTree'
 
 export const MIRRORS: MirrorProfile[] = [
   { id: 'official', label: 'Hugging Face 官方源', baseUrl: 'https://huggingface.co', source: 'official' },
@@ -39,6 +40,12 @@ export function useHfWorkbench() {
   const [outputDir, setOutputDir] = useState('')
   const [concurrency, setConcurrency] = useState(3)
   const [createRepoFolder, setCreateRepoFolder] = useState(true)
+  const [networkMode, setNetworkMode] = useState<NetworkMode>('auto')
+  const [proxyUrl, setProxyUrl] = useState('')
+  const [networkStatus, setNetworkStatus] = useState<NetworkDetectionResult | null>(null)
+  const [networkError, setNetworkError] = useState<string | null>(null)
+  const [detectingNetwork, setDetectingNetwork] = useState(false)
+  const [preferencesReady, setPreferencesReady] = useState(false)
   const [search, setSearch] = useState('')
   const [familyFilter, setFamilyFilter] = useState('all')
   const [endpointStatus, setEndpointStatus] = useState<EndpointTestResult | null>(null)
@@ -87,6 +94,9 @@ export function useHfWorkbench() {
         setOutputDir(prefs.outputDir || nextPaths.downloadsDir)
         setConcurrency(prefs.concurrency)
         setCreateRepoFolder(prefs.createRepoFolder)
+        setNetworkMode(prefs.networkMode)
+        setProxyUrl(prefs.proxyUrl)
+        setPreferencesReady(true)
         setHistory(nextHistory)
         setUpdate(latestUpdate)
       })
@@ -110,6 +120,10 @@ export function useHfWorkbench() {
     [customEndpoint, endpoint, useCustomEndpoint],
   )
   const tokenAllowed = activeEndpoint === MIRRORS[0].baseUrl
+  const networkConfig = useMemo<NetworkConfig>(() => ({
+    mode: networkMode,
+    proxyUrl: proxyUrl.trim(),
+  }), [networkMode, proxyUrl])
 
   useEffect(() => {
     if (!paths) return
@@ -121,11 +135,46 @@ export function useHfWorkbench() {
         outputDir,
         concurrency,
         createRepoFolder,
+        networkMode,
+        proxyUrl,
       })
     }, 250)
 
     return () => window.clearTimeout(timeout)
-  }, [activeEndpoint, concurrency, createRepoFolder, outputDir, paths, repoId])
+  }, [activeEndpoint, concurrency, createRepoFolder, networkMode, outputDir, paths, proxyUrl, repoId])
+
+  useEffect(() => {
+    if (!preferencesReady || !activeEndpoint) return
+
+    let cancelled = false
+    const timeout = window.setTimeout(() => {
+      if (networkMode === 'custom' && !proxyUrl.trim()) {
+        setNetworkStatus(null)
+        setNetworkError('请填写自定义代理地址。')
+        return
+      }
+      setDetectingNetwork(true)
+      setNetworkError(null)
+      void window.appApi.detectNetwork(activeEndpoint, networkConfig)
+        .then((result) => {
+          if (!cancelled) setNetworkStatus(result)
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setNetworkStatus(null)
+            setNetworkError(error instanceof Error ? error.message : '网络通道检测失败。')
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setDetectingNetwork(false)
+        })
+    }, 500)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+  }, [activeEndpoint, networkConfig, networkMode, preferencesReady, proxyUrl])
 
   const hasManifest = manifest.length > 0
   const repoLooksValid = useMemo(() => {
@@ -271,6 +320,54 @@ export function useHfWorkbench() {
     void window.appApi.openManagedPath(kind)
   }
 
+  function resetManifestForEndpointChange() {
+    setManifest([])
+    setSelectedPaths([])
+    setActiveQuickSelection(null)
+    setSearch('')
+    setFamilyFilter('all')
+    setEndpointStatus(null)
+    setMessage('模型源已切换，请重新读取文件清单。')
+  }
+
+  function handleEndpointProfileChange(value: string) {
+    setToken('')
+    if (value === 'custom') {
+      setUseCustomEndpoint(true)
+      setCustomEndpoint(endpoint)
+    } else {
+      setUseCustomEndpoint(false)
+      setEndpoint(value)
+    }
+    resetManifestForEndpointChange()
+  }
+
+  function handleCustomEndpointChange(value: string) {
+    setCustomEndpoint(value)
+    resetManifestForEndpointChange()
+  }
+
+  async function handleDetectNetwork() {
+    if (!activeEndpoint) {
+      setNetworkError('请先填写有效的 Endpoint。')
+      return
+    }
+    setDetectingNetwork(true)
+    setNetworkError(null)
+    try {
+      const result = await window.appApi.detectNetwork(activeEndpoint, networkConfig)
+      setNetworkStatus(result)
+      setMessage(result.message)
+    } catch (error) {
+      setNetworkStatus(null)
+      const nextError = error instanceof Error ? error.message : '网络通道检测失败。'
+      setNetworkError(nextError)
+      setMessage(nextError)
+    } finally {
+      setDetectingNetwork(false)
+    }
+  }
+
   async function handleTestEndpoint() {
     if (!activeEndpoint) {
       setMessage('请先填写有效的 Endpoint。')
@@ -280,7 +377,11 @@ export function useHfWorkbench() {
     setActiveAction('endpoint')
     setEndpointStatus(null)
     try {
-      const result = await window.appApi.testEndpoint(activeEndpoint, tokenAllowed ? token.trim() || null : null)
+      const result = await window.appApi.testEndpoint(
+        activeEndpoint,
+        tokenAllowed ? token.trim() || null : null,
+        networkConfig,
+      )
       setEndpointStatus(result)
       setMessage(result.ok ? 'Endpoint 连接正常。' : result.message)
     } catch (error) {
@@ -335,6 +436,7 @@ export function useHfWorkbench() {
         endpoint: nextEndpoint.trim(),
         repoId: normalizedRepo,
         token: tokenAllowed ? token.trim() || null : null,
+        network: networkConfig,
       })
       const runtimePaths = nextManifest
         .filter((item) => ['weights', 'config', 'tokenizer'].includes(item.family))
@@ -379,7 +481,7 @@ export function useHfWorkbench() {
         selectedPaths,
         concurrency,
         createRepoFolder,
-      })
+      }, networkConfig)
       setMessage('下载已开始，实时状态会持续更新。')
       setHistory(await window.appApi.getHistory())
     } catch (error) {
@@ -496,7 +598,7 @@ export function useHfWorkbench() {
         selectedPaths: restored.selectedPaths,
         concurrency,
         createRepoFolder,
-      })
+      }, networkConfig)
       setMessage(`已重新发起 ${entry.repoId} 的下载。`)
       setHistory(await window.appApi.getHistory())
       setHistoryOpen(false)
@@ -524,6 +626,11 @@ export function useHfWorkbench() {
       : [...current, path])
   }
 
+  function togglePaths(paths: string[], checked: boolean) {
+    setActiveQuickSelection(null)
+    setSelectedPaths((current) => updatePathSelection(current, paths, checked))
+  }
+
   function selectAllVisible() {
     setActiveQuickSelection(null)
     setSelectedPaths((current) => dedupe([...current, ...visibleManifest.map((item) => item.path)]))
@@ -544,11 +651,10 @@ export function useHfWorkbench() {
     repoId,
     setRepoId,
     endpoint,
-    setEndpoint,
     customEndpoint,
-    setCustomEndpoint,
     useCustomEndpoint,
-    setUseCustomEndpoint,
+    handleEndpointProfileChange,
+    handleCustomEndpointChange,
     activeEndpoint,
     token,
     setToken,
@@ -559,6 +665,14 @@ export function useHfWorkbench() {
     setConcurrency,
     createRepoFolder,
     setCreateRepoFolder,
+    networkMode,
+    setNetworkMode,
+    proxyUrl,
+    setProxyUrl,
+    networkStatus,
+    networkError,
+    detectingNetwork,
+    handleDetectNetwork,
     endpointStatus,
     activeAction,
     loadingManifest,
@@ -605,6 +719,7 @@ export function useHfWorkbench() {
     handleRetryHistory,
     applyQuickSelection,
     togglePath,
+    togglePaths,
     selectAllVisible,
     clearAllVisible,
     openDownloadFolder,

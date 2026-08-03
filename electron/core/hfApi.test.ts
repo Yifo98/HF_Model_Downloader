@@ -12,6 +12,7 @@ import {
   normalizeRepoId,
   normalizeTokenForEndpoint,
   readErrorMessage,
+  testEndpoint,
   toManifestItems,
 } from './hfApi.js'
 
@@ -157,4 +158,16 @@ test('mirror endpoint probe plan avoids whoami and checks models list first', ()
   const probes = getEndpointProbePlan('https://hf-mirror.com', false)
   assert.equal(probes[0]?.url, 'https://hf-mirror.com/api/models?limit=1')
   assert.equal(probes[1]?.url, 'https://hf-mirror.com/robots.txt')
+})
+
+test('endpoint connectivity stops after the first transport failure', async () => {
+  let calls = 0
+  const result = await testEndpoint('https://huggingface.co', null, async () => {
+    calls += 1
+    throw new Error('offline')
+  })
+
+  assert.equal(calls, 1)
+  assert.equal(result.ok, false)
+  assert.match(result.message, /offline/)
 })

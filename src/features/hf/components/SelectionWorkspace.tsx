@@ -4,6 +4,7 @@ import { FileManifestTable } from './FileManifestTable'
 
 type SelectionWorkspaceProps = Pick<HfWorkbench,
   | 'hasManifest'
+  | 'manifest'
   | 'visibleManifest'
   | 'selectedPaths'
   | 'selectedVisibleCount'
@@ -16,6 +17,7 @@ type SelectionWorkspaceProps = Pick<HfWorkbench,
   | 'activeQuickSelection'
   | 'applyQuickSelection'
   | 'togglePath'
+  | 'togglePaths'
   | 'selectAllVisible'
   | 'clearAllVisible'
 >
@@ -91,9 +93,11 @@ export function SelectionWorkspace(props: SelectionWorkspaceProps) {
       </div>
 
       <FileManifestTable
+        allItems={props.manifest}
         items={props.visibleManifest}
         selected={props.selectedPaths}
         onToggle={props.togglePath}
+        onToggleMany={props.togglePaths}
       />
     </section>
   )

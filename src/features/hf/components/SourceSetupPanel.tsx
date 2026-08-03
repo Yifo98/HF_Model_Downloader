@@ -7,11 +7,10 @@ type SourceSetupPanelProps = Pick<HfWorkbench,
   | 'repoId'
   | 'setRepoId'
   | 'endpoint'
-  | 'setEndpoint'
   | 'customEndpoint'
-  | 'setCustomEndpoint'
   | 'useCustomEndpoint'
-  | 'setUseCustomEndpoint'
+  | 'handleEndpointProfileChange'
+  | 'handleCustomEndpointChange'
   | 'token'
   | 'setToken'
   | 'tokenAllowed'
@@ -20,6 +19,14 @@ type SourceSetupPanelProps = Pick<HfWorkbench,
   | 'setConcurrency'
   | 'createRepoFolder'
   | 'setCreateRepoFolder'
+  | 'networkMode'
+  | 'setNetworkMode'
+  | 'proxyUrl'
+  | 'setProxyUrl'
+  | 'networkStatus'
+  | 'networkError'
+  | 'detectingNetwork'
+  | 'queueActive'
   | 'endpointStatus'
   | 'activeAction'
   | 'loadingManifest'
@@ -27,10 +34,24 @@ type SourceSetupPanelProps = Pick<HfWorkbench,
   | 'message'
   | 'readiness'
   | 'handlePickDirectory'
+  | 'handleDetectNetwork'
   | 'handleTestEndpoint'
   | 'handleLoadManifest'
 > & {
   allowCustomEndpoint: boolean
+}
+
+const NETWORK_MODE_OPTIONS: Array<{ value: NetworkMode; label: string }> = [
+  { value: 'auto', label: '自动推荐' },
+  { value: 'system', label: '跟随系统代理' },
+  { value: 'direct', label: '直连' },
+  { value: 'custom', label: '自定义代理' },
+]
+
+function networkRouteLabel(mode: NetworkRouteMode) {
+  if (mode === 'system') return '系统代理'
+  if (mode === 'direct') return '直连'
+  return '自定义代理'
 }
 
 export function SourceSetupPanel(props: SourceSetupPanelProps) {
@@ -70,39 +91,6 @@ export function SourceSetupPanel(props: SourceSetupPanelProps) {
           <small>例如：black-forest-labs/FLUX.1-dev</small>
         </label>
 
-        <label className="field" htmlFor="endpoint-profile">
-          <span className="field__label">Endpoint</span>
-          <select
-            id="endpoint-profile"
-            value={props.useCustomEndpoint ? 'custom' : props.endpoint}
-            onChange={(event) => {
-              if (event.target.value === 'custom') {
-                props.setToken('')
-                props.setUseCustomEndpoint(true)
-                props.setCustomEndpoint(props.endpoint)
-              } else {
-                if (event.target.value !== MIRRORS[0].baseUrl) props.setToken('')
-                props.setUseCustomEndpoint(false)
-                props.setEndpoint(event.target.value)
-              }
-            }}
-          >
-            {MIRRORS.map((mirror) => <option key={mirror.id} value={mirror.baseUrl}>{mirror.label}</option>)}
-            {props.allowCustomEndpoint ? <option value="custom">自定义 Endpoint（开发模式）</option> : null}
-          </select>
-          {props.useCustomEndpoint ? (
-            <input
-              className="field__subinput"
-              aria-label="自定义 Endpoint 地址"
-              value={props.customEndpoint}
-              onChange={(event) => props.setCustomEndpoint(event.target.value)}
-              placeholder="https://example.com"
-              autoCapitalize="none"
-              spellCheck={false}
-            />
-          ) : <small>可随时测试当前节点连通性</small>}
-        </label>
-
         <label className="field field--token" htmlFor="access-token">
           <span className="field__label">访问 Token <em>可选</em></span>
           <div className="input-action">
@@ -140,6 +128,101 @@ export function SourceSetupPanel(props: SourceSetupPanelProps) {
         </label>
       </div>
 
+      <div className="network-routing" aria-labelledby="network-routing-title">
+        <div className="network-routing__heading">
+          <div>
+            <span id="network-routing-title">连接策略</span>
+            <small>模型源决定访问站点，网络通道决定如何连接；切换模型源后会自动重新检测。</small>
+          </div>
+          <p className={props.networkError ? 'network-routing__message network-routing__message--error' : 'network-routing__message'}>
+            {props.detectingNetwork
+              ? '正在检测可用通道…'
+              : props.networkError ?? props.networkStatus?.message ?? '应用启动后会自动检测并给出推荐。'}
+          </p>
+        </div>
+
+        <div className="network-routing__controls">
+          <label className="network-routing__source" htmlFor="endpoint-profile">
+            <span>模型源</span>
+            <select
+              id="endpoint-profile"
+              value={props.useCustomEndpoint ? 'custom' : props.endpoint}
+              onChange={(event) => props.handleEndpointProfileChange(event.target.value)}
+              disabled={props.queueActive || props.activeAction !== null || props.loadingManifest}
+            >
+              {MIRRORS.map((mirror) => <option key={mirror.id} value={mirror.baseUrl}>{mirror.label}</option>)}
+              {props.allowCustomEndpoint ? <option value="custom">自定义 Endpoint（开发模式）</option> : null}
+            </select>
+            {props.useCustomEndpoint ? (
+              <input
+                className="field__subinput"
+                aria-label="自定义 Endpoint 地址"
+                value={props.customEndpoint}
+                onChange={(event) => props.handleCustomEndpointChange(event.target.value)}
+                placeholder="https://example.com"
+                autoCapitalize="none"
+                spellCheck={false}
+                disabled={props.queueActive || props.activeAction !== null || props.loadingManifest}
+              />
+            ) : null}
+          </label>
+          <label className="network-routing__select" htmlFor="network-mode">
+            <span>使用方式</span>
+            <select
+              id="network-mode"
+              value={props.networkMode}
+              onChange={(event) => props.setNetworkMode(event.target.value as NetworkMode)}
+              disabled={props.queueActive || props.activeAction !== null || props.loadingManifest}
+            >
+              {NETWORK_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="network-routing__proxy" htmlFor="custom-proxy-url">
+            <span>自定义代理地址</span>
+            <input
+              id="custom-proxy-url"
+              value={props.proxyUrl}
+              onChange={(event) => props.setProxyUrl(event.target.value)}
+              placeholder="例如 http://127.0.0.1:7897"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              disabled={props.queueActive || props.activeAction !== null || props.loadingManifest}
+            />
+          </label>
+          <button
+            type="button"
+            className="text-button network-routing__detect"
+            onClick={props.handleDetectNetwork}
+            disabled={props.detectingNetwork || props.queueActive || props.activeAction !== null || props.loadingManifest}
+          >
+            {props.detectingNetwork ? '检测中' : '重新检测'}
+          </button>
+        </div>
+
+        {props.networkStatus ? (
+          <div className="network-routing__results" aria-label="网络通道检测结果">
+            <span className="network-routing__system" title={props.networkStatus.systemProxySummary}>
+              系统：{props.networkStatus.systemProxySummary}
+            </span>
+            {props.networkStatus.routes.map((route) => (
+              <span
+                key={route.mode}
+                className={route.available ? 'network-route network-route--available' : 'network-route network-route--unavailable'}
+                title={route.detail}
+              >
+                <strong>{networkRouteLabel(route.mode)}</strong>
+                <small>{route.available ? `${route.latencyMs ?? 0} ms` : '不可用'}</small>
+                {props.networkStatus?.recommendedMode === route.mode ? <em>推荐</em> : null}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <small className="network-routing__privacy">代理地址会保存在本机偏好中，因此不允许填写账号或密码。</small>
+      </div>
+
       <div className="source-footer">
         <div className="source-options">
           <label className="compact-field" htmlFor="concurrency">
@@ -167,7 +250,7 @@ export function SourceSetupPanel(props: SourceSetupPanelProps) {
             type="button"
             className="button button--quiet"
             onClick={props.handleTestEndpoint}
-            disabled={props.activeAction === 'endpoint'}
+            disabled={props.activeAction === 'endpoint' || props.loadingManifest || props.detectingNetwork}
           >
             {props.activeAction === 'endpoint' ? '正在测试' : '测试连接'}
           </button>
@@ -175,7 +258,7 @@ export function SourceSetupPanel(props: SourceSetupPanelProps) {
             type="button"
             className="button button--primary"
             onClick={props.handleLoadManifest}
-            disabled={props.loadingManifest}
+            disabled={props.loadingManifest || props.activeAction === 'endpoint' || props.detectingNetwork}
           >
             {props.loadingManifest ? '正在读取清单' : props.hasManifest ? '重新读取清单' : '读取文件清单'}
           </button>

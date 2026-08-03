@@ -27,6 +27,32 @@ type RuntimeStatus = {
   checks: RuntimeCheck[]
 }
 
+type NetworkMode = 'auto' | 'system' | 'direct' | 'custom'
+
+type NetworkRouteMode = Exclude<NetworkMode, 'auto'>
+
+type NetworkConfig = {
+  mode: NetworkMode
+  proxyUrl: string
+}
+
+type NetworkRouteProbe = {
+  mode: NetworkRouteMode
+  available: boolean
+  latencyMs: number | null
+  detail: string
+}
+
+type NetworkDetectionResult = {
+  selectedMode: NetworkMode
+  effectiveMode: NetworkRouteMode | null
+  recommendedMode: NetworkRouteMode | null
+  systemProxyDetected: boolean
+  systemProxySummary: string
+  routes: NetworkRouteProbe[]
+  message: string
+}
+
 type FileManifestItem = {
   path: string
   size: number | null
@@ -158,6 +184,8 @@ type Preferences = {
   outputDir: string
   concurrency: number
   createRepoFolder: boolean
+  networkMode: NetworkMode
+  proxyUrl: string
 }
 
 type AppInfo = {
@@ -186,9 +214,10 @@ interface Window {
     deleteHistory: (sessionId: string, mode: HistoryDeleteMode) => Promise<HistoryDeleteResult>
     refreshHistory: () => Promise<HistorySyncResult>
     pickDirectory: (currentPath?: string) => Promise<string | null>
-    testEndpoint: (endpoint: string, token: string | null) => Promise<EndpointTestResult>
-    listFiles: (payload: { endpoint: string; repoId: string; token: string | null }) => Promise<FileManifestItem[]>
-    startDownload: (request: DownloadRequest) => Promise<string>
+    detectNetwork: (endpoint: string, networkConfig: NetworkConfig) => Promise<NetworkDetectionResult>
+    testEndpoint: (endpoint: string, token: string | null, networkConfig: NetworkConfig) => Promise<EndpointTestResult>
+    listFiles: (payload: { endpoint: string; repoId: string; token: string | null; network: NetworkConfig }) => Promise<FileManifestItem[]>
+    startDownload: (request: DownloadRequest, networkConfig: NetworkConfig) => Promise<string>
     cancelDownload: () => Promise<void>
     getLatestUpdate: () => Promise<DownloadUpdate>
     openPath: (targetPath: string) => Promise<void>

@@ -155,11 +155,10 @@ export default function App() {
           repoId={workbench.repoId}
           setRepoId={workbench.setRepoId}
           endpoint={workbench.endpoint}
-          setEndpoint={workbench.setEndpoint}
           customEndpoint={workbench.customEndpoint}
-          setCustomEndpoint={workbench.setCustomEndpoint}
           useCustomEndpoint={workbench.useCustomEndpoint}
-          setUseCustomEndpoint={workbench.setUseCustomEndpoint}
+          handleEndpointProfileChange={workbench.handleEndpointProfileChange}
+          handleCustomEndpointChange={workbench.handleCustomEndpointChange}
           token={workbench.token}
           setToken={workbench.setToken}
           tokenAllowed={workbench.tokenAllowed}
@@ -168,6 +167,14 @@ export default function App() {
           setConcurrency={workbench.setConcurrency}
           createRepoFolder={workbench.createRepoFolder}
           setCreateRepoFolder={workbench.setCreateRepoFolder}
+          networkMode={workbench.networkMode}
+          setNetworkMode={workbench.setNetworkMode}
+          proxyUrl={workbench.proxyUrl}
+          setProxyUrl={workbench.setProxyUrl}
+          networkStatus={workbench.networkStatus}
+          networkError={workbench.networkError}
+          detectingNetwork={workbench.detectingNetwork}
+          queueActive={workbench.queueActive}
           endpointStatus={workbench.endpointStatus}
           activeAction={workbench.activeAction}
           loadingManifest={workbench.loadingManifest}
@@ -175,6 +182,7 @@ export default function App() {
           message={workbench.message}
           readiness={workbench.readiness}
           handlePickDirectory={workbench.handlePickDirectory}
+          handleDetectNetwork={workbench.handleDetectNetwork}
           handleTestEndpoint={workbench.handleTestEndpoint}
           handleLoadManifest={workbench.handleLoadManifest}
         />
@@ -182,6 +190,7 @@ export default function App() {
         <div className="sol-workspace">
           <SelectionWorkspace
             hasManifest={workbench.hasManifest}
+            manifest={workbench.manifest}
             visibleManifest={workbench.visibleManifest}
             selectedPaths={workbench.selectedPaths}
             selectedVisibleCount={workbench.selectedVisibleCount}
@@ -194,6 +203,7 @@ export default function App() {
             activeQuickSelection={workbench.activeQuickSelection}
             applyQuickSelection={workbench.applyQuickSelection}
             togglePath={workbench.togglePath}
+            togglePaths={workbench.togglePaths}
             selectAllVisible={workbench.selectAllVisible}
             clearAllVisible={workbench.clearAllVisible}
           />

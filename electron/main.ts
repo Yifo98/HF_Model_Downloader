@@ -9,6 +9,8 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { DownloadRunner } from './core/downloadRunner.js'
 import { deleteHistoryEntry, reconcileHistory } from './core/historyManager.js'
 import { listModelFiles, normalizeRepoId, testEndpoint } from './core/hfApi.js'
+import { normalizeNetworkConfig } from './core/networkPolicy.js'
+import { NetworkTransport } from './core/networkTransport.js'
 import {
   HUGGING_FACE_MODELS_URL,
   isValidSessionId,
@@ -29,6 +31,7 @@ import type {
   HistoryDeleteMode,
   HistoryEntry,
   ManagedPathKind,
+  NetworkConfig,
   Preferences,
   RuntimeStatus,
   UpdateCheckResult,
@@ -60,6 +63,8 @@ const defaultPreferences: Preferences = {
   outputDir: DEFAULT_DOWNLOADS_DIR,
   concurrency: 3,
   createRepoFolder: true,
+  networkMode: 'auto',
+  proxyUrl: '',
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -68,6 +73,7 @@ let runner: DownloadRunner | null = null
 let startPending = false
 let approvedOutputRoots: string[] | null = null
 let updateService: UpdateService | null = null
+let networkTransport: NetworkTransport | null = null
 let latestUpdate: DownloadUpdate = {
   queue: { total: 0, pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0, concurrency: 1 },
   jobs: [],
@@ -278,6 +284,17 @@ function savePreferences(value: unknown) {
     sanitized.outputDir = current.outputDir
   }
   writeJsonFile(paths.preferencesFile, sanitized)
+}
+
+function resolveNetworkConfig(value: unknown): NetworkConfig {
+  if (value !== undefined) return normalizeNetworkConfig(value)
+  const preferences = loadPreferences()
+  return { mode: preferences.networkMode, proxyUrl: preferences.proxyUrl }
+}
+
+function getNetworkTransport() {
+  networkTransport ??= new NetworkTransport()
+  return networkTransport
 }
 
 function loadHistory() {
@@ -616,10 +633,17 @@ function registerIpc() {
   secureHandle('external:open-hf-models', async () => {
     await shell.openExternal(HUGGING_FACE_MODELS_URL)
   })
-  secureHandle('hf:test-endpoint', async ([endpointValue, tokenValue]) => {
+  secureHandle('network:detect', async ([endpointValue, networkConfigValue]) => {
+    const endpoint = normalizeRuntimeEndpoint(endpointValue, !app.isPackaged)
+    const networkConfig = resolveNetworkConfig(networkConfigValue)
+    return getNetworkTransport().detect(endpoint, networkConfig, true)
+  })
+  secureHandle('hf:test-endpoint', async ([endpointValue, tokenValue, networkConfigValue]) => {
     const endpoint = normalizeRuntimeEndpoint(endpointValue, !app.isPackaged)
     const token = normalizeTokenForEndpoint(endpoint, tokenValue)
-    return testEndpoint(endpoint, token)
+    const networkConfig = resolveNetworkConfig(networkConfigValue)
+    const network = await getNetworkTransport().resolve(endpoint, networkConfig)
+    return testEndpoint(endpoint, token, network.fetch)
   })
   secureHandle('hf:list-files', async ([value]) => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('清单请求不合法。')
@@ -627,11 +651,13 @@ function registerIpc() {
     const endpoint = normalizeRuntimeEndpoint(payload.endpoint, !app.isPackaged)
     const repoId = normalizeRepoId(typeof payload.repoId === 'string' ? payload.repoId : '')
     const token = normalizeTokenForEndpoint(endpoint, payload.token)
-    return listModelFiles(endpoint, repoId, token)
+    const networkConfig = resolveNetworkConfig(payload.network)
+    const network = await getNetworkTransport().resolve(endpoint, networkConfig)
+    return listModelFiles(endpoint, repoId, token, network.fetch)
   })
   secureHandle('hf:get-update', () => latestUpdate)
   secureHandle('hf:cancel-download', () => runner?.cancel())
-  secureHandle('hf:start-download', async ([value]) => {
+  secureHandle('hf:start-download', async ([value, networkConfigValue]) => {
     if (runner || startPending) throw new Error('当前已有下载任务正在准备或运行。')
     startPending = true
     try {
@@ -641,7 +667,14 @@ function registerIpc() {
         throw new Error('下载目录不存在，请重新选择。')
       }
 
-      const manifest = await listModelFiles(normalizedRequest.endpoint, normalizedRequest.repoId, normalizedRequest.token)
+      const networkConfig = resolveNetworkConfig(networkConfigValue)
+      const network = await getNetworkTransport().resolve(normalizedRequest.endpoint, networkConfig)
+      const manifest = await listModelFiles(
+        normalizedRequest.endpoint,
+        normalizedRequest.repoId,
+        normalizedRequest.token,
+        network.fetch,
+      )
       const selectedPaths = new Set(normalizedRequest.selectedPaths)
       const selected = manifest.filter((item) => selectedPaths.has(item.path))
       if (selected.length !== selectedPaths.size) throw new Error('所选文件与最新仓库清单不一致，请重新加载清单。')
@@ -668,7 +701,7 @@ function registerIpc() {
       const nextRunner = new DownloadRunner(normalizedRequest, selected, {
         onUpdate: sendUpdate,
         onDone: finalize,
-      })
+      }, network.fetch)
 
       const history: HistoryEntry[] = [{
         sessionId,

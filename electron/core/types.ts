@@ -25,6 +25,32 @@ export type RuntimeStatus = {
   checks: RuntimeCheck[]
 }
 
+export type NetworkMode = 'auto' | 'system' | 'direct' | 'custom'
+
+export type NetworkRouteMode = Exclude<NetworkMode, 'auto'>
+
+export type NetworkConfig = {
+  mode: NetworkMode
+  proxyUrl: string
+}
+
+export type NetworkRouteProbe = {
+  mode: NetworkRouteMode
+  available: boolean
+  latencyMs: number | null
+  detail: string
+}
+
+export type NetworkDetectionResult = {
+  selectedMode: NetworkMode
+  effectiveMode: NetworkRouteMode | null
+  recommendedMode: NetworkRouteMode | null
+  systemProxyDetected: boolean
+  systemProxySummary: string
+  routes: NetworkRouteProbe[]
+  message: string
+}
+
 export type FileManifestItem = {
   path: string
   size: number | null
@@ -156,6 +182,8 @@ export type Preferences = {
   outputDir: string
   concurrency: number
   createRepoFolder: boolean
+  networkMode: NetworkMode
+  proxyUrl: string
 }
 
 export type AppInfo = {

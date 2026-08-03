@@ -23,6 +23,13 @@ function requireManagedPathKind(value) {
   throw new TypeError('管理目录类型不合法。')
 }
 
+function requireNetworkConfig(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('网络配置不合法。')
+  if (!['auto', 'system', 'direct', 'custom'].includes(value.mode)) throw new TypeError('网络模式不合法。')
+  if (typeof value.proxyUrl !== 'string') throw new TypeError('代理地址必须是字符串。')
+  return { mode: value.mode, proxyUrl: value.proxyUrl }
+}
+
 const appApi = Object.freeze({
   getAppInfo: () => ipcRenderer.invoke('app:get-info'),
   getPaths: () => ipcRenderer.invoke('paths:get'),
@@ -41,9 +48,23 @@ const appApi = Object.freeze({
   prepareUpdate: () => ipcRenderer.invoke('updates:prepare'),
   applyPreparedUpdate: () => ipcRenderer.invoke('updates:apply'),
   pickDirectory: (currentPath) => ipcRenderer.invoke('dialog:pickDirectory', currentPath),
-  testEndpoint: (endpoint, token) => ipcRenderer.invoke('hf:test-endpoint', requireString(endpoint, 'Endpoint'), token),
+  detectNetwork: (endpoint, networkConfig) => ipcRenderer.invoke(
+    'network:detect',
+    requireString(endpoint, 'Endpoint'),
+    requireNetworkConfig(networkConfig),
+  ),
+  testEndpoint: (endpoint, token, networkConfig) => ipcRenderer.invoke(
+    'hf:test-endpoint',
+    requireString(endpoint, 'Endpoint'),
+    token,
+    requireNetworkConfig(networkConfig),
+  ),
   listFiles: (payload) => ipcRenderer.invoke('hf:list-files', payload),
-  startDownload: (request) => ipcRenderer.invoke('hf:start-download', request),
+  startDownload: (request, networkConfig) => ipcRenderer.invoke(
+    'hf:start-download',
+    request,
+    requireNetworkConfig(networkConfig),
+  ),
   cancelDownload: () => ipcRenderer.invoke('hf:cancel-download'),
   getLatestUpdate: () => ipcRenderer.invoke('hf:get-update'),
   openPath: (targetPath) => ipcRenderer.invoke('output:open', requireString(targetPath, '下载目录')),
