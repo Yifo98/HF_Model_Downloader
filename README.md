@@ -72,6 +72,12 @@ npm run dist:portable
 
 仓库根目录的 `Launch HF Model Downloader.command` 可在 macOS 上启动开发版。
 
+## Contributing, Security, and License
+
+- **Contributing:** See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, validation expectations, and pull request guidance.
+- **Security:** Report vulnerabilities according to [SECURITY.md](SECURITY.md). The current architecture and residual-risk review is documented in [docs/security/5.6-review.md](docs/security/5.6-review.md).
+- **License:** Unless a specific file or bundled third-party component states otherwise, the project's original code and repository-authored assets are licensed under the [MIT License](LICENSE).
+
 ## 数据与隐私
 
 - macOS/Linux 默认下载目录：`~/Program/Downloads`
