@@ -1,6 +1,7 @@
 {
   "name": "hf-model-downloader",
   "private": true,
+  "license": "MIT",
   "version": "5.6.3",
   "type": "module",
   "main": "dist-electron/main.js",
